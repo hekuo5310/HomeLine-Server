@@ -54,6 +54,7 @@ systemctl enable --now homeline-asterisk homeline nginx
 systemctl restart homeline nginx
 for attempt in {1..30}; do
     if curl --fail --silent http://127.0.0.1:8000/health/ready >/dev/null; then
+        runuser -u homeline -- /opt/homeline/venv/bin/homeline doctor
         echo 'HomeLine ready. Initialize administrator: sudo -u homeline /opt/homeline/venv/bin/homeline init-admin'
         echo 'Config: /etc/homeline/server.env; diagnostics: journalctl -u homeline -u homeline-asterisk'
         exit 0

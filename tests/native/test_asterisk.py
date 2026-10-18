@@ -348,6 +348,23 @@ async def scenario(root, media_required):
             ) as client,
         ):
             await wait_until(lambda: rt.ready, 30)
+            from websockets.asyncio.client import connect
+
+            with pytest.raises(ssl.SSLCertVerificationError):
+                async with connect(
+                    "wss://localhost:18089/ws",
+                    ssl=ssl.create_default_context(),
+                    subprotocols=["sip"],
+                    proxy=None,
+                ):
+                    raise AssertionError("Untrusted certificate accepted")
+            from unittest.mock import patch
+
+            from homeline.diagnostics import diagnose
+
+            with patch.dict(os.environ, {"SSL_CERT_FILE": str(root / "tls.pem")}):
+                diagnostic = await diagnose(settings)
+                assert diagnostic["trusted_sip_wss"] == "ok"
             context = ssl.create_default_context(cafile=str(root / "tls.pem"))
             sessions = []
             for username in ("alice", "bob", "bob"):

@@ -62,4 +62,6 @@ sudo -u asterisk /opt/homeline-asterisk/sbin/asterisk -C /etc/homeline/asterisk/
 sudo nginx -t
 ```
 
+安装/升级/恢复还执行 `homeline doctor`，检查数据库完整性、必需ARI模块和外部WSS证书/握手（包括Nginx上游）。它不验证实际媒体和FCM投递。可手动运行 `sudo -u homeline /opt/homeline/venv/bin/homeline doctor`。
+
 live 只表示进程活着；ready503 时不能认为电话可用。检查ARI凭据、loopback监听、required modules、文件权限；会话正常但无SIP时检查证书/主机名、凭据有效期、WebSocket升级和PJSIP contacts。振铃能接但无声音检查双向UDP、ICE、VPN路由、TURN、NAT媒体地址；勿关闭证书校验。生产默认不记录完整请求/推送/SIP调试，不要将包含凭据的 pjsip logger 输出公开。

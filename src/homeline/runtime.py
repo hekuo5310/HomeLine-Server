@@ -131,6 +131,7 @@ class Runtime:
     async def recover(self):
         await self.pbx.info()
         actual = await self.pbx.channels()
+        actual_bridges = await self.pbx.list_bridges()
         with self.database.transaction(False) as db:
             calls = list(db.scalars(select(m.Call).where(m.Call.state.not_in(TERMINAL))))
             # Include terminal calls awaiting durable cleanup and all known channels.
@@ -138,6 +139,7 @@ class Runtime:
             owned.update(x for x in db.scalars(select(m.Call.source_channel)) if x)
             owned.update(x for x in db.scalars(select(m.LineLease.channel_id)) if x)
             bridges = {x for x in db.scalars(select(m.Call.bridge_id)) if x}
+        bridges.update(b["id"] for b in actual_bridges if b["id"].startswith("hl-"))
         owned.update(c["id"] for c in actual if c["id"].startswith("hl-"))
         for channel in actual:
             if channel["id"] in owned:
@@ -302,6 +304,7 @@ class Runtime:
         wire = await self.pbx.wire_id(channel)
         actual = await self.pbx.channels() if args[0] == "external" else []
         accepted = False
+        busy = False
         with self.database.transaction() as db:
             existing = db.scalar(select(m.Call).where(m.Call.source_channel == channel_id))
             if existing:
@@ -312,8 +315,23 @@ class Runtime:
                     select(m.User).where(m.User.extension == args[2], m.User.status == "active")
                 )
                 user = db.get(m.User, device.user_id) if device else None
+                busy = (
+                    db.scalar(
+                        select(m.Leg.id)
+                        .join(m.Call, m.Call.id == m.Leg.call_id)
+                        .where(
+                            m.Leg.device_id == device.id,
+                            m.Leg.state.in_(["ringing", "up"]),
+                            m.Call.state.not_in(TERMINAL),
+                        )
+                        .limit(1)
+                    )
+                    if device
+                    else None
+                )
                 if (
                     device
+                    and not busy
                     and target
                     and user
                     and user.status == "active"
@@ -367,7 +385,7 @@ class Runtime:
         if accepted:
             await self.pbx.ring(channel_id)
         else:
-            await self.pbx.hangup(channel_id, "rejected")
+            await self.pbx.hangup(channel_id, "busy" if busy else "rejected")
 
     async def record_wire(self, channel):
         with self.database.transaction(False) as db:

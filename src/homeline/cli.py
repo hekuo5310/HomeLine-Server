@@ -1,7 +1,9 @@
 # SPDX-License-Identifier: MPL-2.0
 import argparse
+import asyncio
 import fcntl
 import getpass
+import json
 import os
 import sys
 from pathlib import Path
@@ -39,6 +41,7 @@ def main():
     parser.add_argument("--config", type=Path, default=Path("/etc/homeline/server.env"))
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("migrate")
+    sub.add_parser("doctor")
     admin = sub.add_parser("init-admin")
     admin.add_argument("--username", default="admin")
     admin.add_argument("--extension", default="1001")
@@ -48,6 +51,14 @@ def main():
         p.add_argument("--passphrase-file", type=Path)
     args = parser.parse_args()
     settings = Settings(_env_file=args.config)
+    if args.command == "doctor":
+        from .diagnostics import diagnose
+
+        try:
+            print(json.dumps(asyncio.run(diagnose(settings))))
+        except Exception as exc:
+            raise SystemExit("diagnostic_failed: " + type(exc).__name__) from None
+        return
     if args.command == "migrate":
         migrate(settings)
         return

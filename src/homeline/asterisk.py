@@ -47,6 +47,9 @@ class Asterisk:
                 raise PBXError("required_module_not_running")
         return info
 
+    async def list_bridges(self):
+        return await self.request("GET", "bridges")
+
     async def channels(self):
         return await self.request("GET", "channels")
 

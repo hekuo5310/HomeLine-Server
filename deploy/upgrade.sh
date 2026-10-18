@@ -13,7 +13,10 @@ install -m 0644 "$SOURCE/deploy/systemd/homeline.service" /etc/systemd/system/
 systemctl daemon-reload
 systemctl start homeline
 for attempt in {1..30}; do
-    if curl --fail --silent http://127.0.0.1:8000/health/ready >/dev/null; then exit 0; fi
+    if curl --fail --silent http://127.0.0.1:8000/health/ready >/dev/null; then
+        runuser -u homeline -- /opt/homeline/venv/bin/homeline doctor
+        exit 0
+    fi
     sleep 1
 done
 echo 'Upgrade readiness failed' >&2

@@ -25,6 +25,9 @@ class PBX:
     async def info(self):
         return {}
 
+    async def list_bridges(self):
+        return []
+
     async def channels(self):
         return list(self.actual.values())
 
@@ -276,3 +279,20 @@ def test_expiry_and_provision_omit_revoked_endpoint(app):
     asyncio.run(rt.provision())
     assert "d" + session["device_id"] not in rt.settings.pjsip_file.read_text()
     assert c.get("/v1/session", headers=auth(session)).status_code == 401
+
+
+def test_busy_device_is_not_given_second_invite(app):
+    a, c = app
+    session = login(c)
+    rt = runtime(a)
+    eligible_device(rt, session)
+    one = offer(rt, session, "outbound")
+    two = offer(rt, session, "outbound")
+
+    async def run():
+        await rt.ring_leg(one, session["device_id"])
+        with pytest.raises(PBXError, match="device_busy"):
+            await rt.ring_leg(two, session["device_id"])
+        assert len(rt.pbx.dials) == 1
+
+    asyncio.run(run())
