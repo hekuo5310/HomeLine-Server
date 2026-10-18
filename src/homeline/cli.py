@@ -17,7 +17,8 @@ from .db import Database
 from .maintenance import backup, check_backup, restore
 from .models import User
 from .schemas import CreateUser
-from .security import hasher
+from .security import Vault, hasher
+from .service import Service, audit
 
 
 def migrate(settings):
@@ -36,6 +37,32 @@ def migrate(settings):
     settings.database.chmod(0o600)
 
 
+def recover_admin(settings, username, password):
+    database = Database(settings.database)
+    from .maintenance import restore_marker
+
+    if restore_marker(settings).exists():
+        raise RuntimeError("Resolve interrupted restore before recovering an administrator")
+    service = Service(database, settings, Vault(settings.key_file))
+    try:
+        with database.transaction() as db:
+            user = db.scalar(select(User).where(User.username == username, User.role == "admin"))
+            if not user:
+                raise ValueError("Existing administrator not found")
+            data = CreateUser(
+                username=username, password=password, extension=user.extension, role="admin"
+            )
+            from .models import Device
+
+            for device in db.scalars(select(Device).where(Device.user_id == user.id)):
+                service.revoke(db, device)
+            user.password_hash = hasher.hash(data.password)
+            user.status = "active"
+            audit(db, user.id, "administrator_recovered", user.id)
+    finally:
+        database.engine.dispose()
+
+
 def main():
     parser = argparse.ArgumentParser(prog="homeline")
     parser.add_argument("--config", type=Path, default=Path("/etc/homeline/server.env"))
@@ -45,6 +72,10 @@ def main():
     admin = sub.add_parser("init-admin")
     admin.add_argument("--username", default="admin")
     admin.add_argument("--extension", default="1001")
+    recovery = sub.add_parser(
+        "recover-admin", help="Reset and enable an existing administrator through local OS access"
+    )
+    recovery.add_argument("--username", default="admin")
     for name in ("backup", "restore"):
         p = sub.add_parser(name)
         p.add_argument("archive", type=Path)
@@ -67,10 +98,14 @@ def main():
     if args.command == "migrate":
         migrate(settings)
         return
-    if args.command == "init-admin":
+    if args.command in {"init-admin", "recover-admin"}:
         password = getpass.getpass("New administrator password (12+ characters): ")
         if password != getpass.getpass("Repeat password: "):
             parser.error("Passwords do not match")
+        if args.command == "recover-admin":
+            recover_admin(settings, args.username, password)
+            print("Administrator recovered; review account permissions before enabling users.")
+            return
         data = CreateUser(
             username=args.username, password=password, extension=args.extension, role="admin"
         )
@@ -111,6 +146,10 @@ def main():
                 parser.error("Stop HomeLine before restoring")
             restore(settings, args.config, args.archive, password)
     print(args.command + " complete")
+    if args.command == "restore":
+        print(
+            "Accounts quarantined and pending calls failed; run homeline recover-admin, review accounts, then sign devices in again."
+        )
 
 
 if __name__ == "__main__":

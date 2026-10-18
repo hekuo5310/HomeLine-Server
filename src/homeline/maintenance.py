@@ -8,7 +8,10 @@ import os
 import re
 import sqlite3
 import tempfile
+import time
+import uuid
 import zipfile
+from contextlib import closing
 from pathlib import Path
 
 from cryptography.fernet import Fernet
@@ -210,7 +213,7 @@ def restore(settings, config_file, source, password, *, check_only=False):
         with tempfile.TemporaryDirectory() as work:
             candidate = Path(work) / "candidate.sqlite3"
             candidate.write_bytes(db_data)
-            with sqlite3.connect(candidate) as db:
+            with closing(sqlite3.connect(candidate)) as db:
                 if db.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
                     raise ValueError("Corrupt database")
                 if db.execute("PRAGMA foreign_key_check").fetchone():
@@ -219,12 +222,46 @@ def restore(settings, config_file, source, password, *, check_only=False):
                     raise ValueError("Unsupported schema")
                 for (secret,) in db.execute("SELECT sip_secret FROM devices"):
                     verifier.decrypt(secret.encode())
+                if not check_only:
+                    with db:
+                        # A point-in-time backup cannot know what ran or was revoked
+                        # after its capture. Quarantine rather than replay authority.
+                        db.execute("UPDATE users SET status='disabled'")
+                        db.execute("UPDATE sessions SET revoked=1")
+                        db.execute(
+                            "UPDATE devices SET status='revoked',sip_expires_at=0,push_token=NULL,push_hash=NULL"
+                        )
+                        db.execute(
+                            "UPDATE calls SET state='failed',failure_reason='backup_restored',revision=revision+1,updated_at=? WHERE state NOT IN ('ended','cancelled','failed','timeout')",
+                            (time.time(),),
+                        )
+                        db.execute(
+                            "UPDATE call_legs SET state='ended' WHERE state IN ('waiting','ringing','up')"
+                        )
+                        db.execute(
+                            "UPDATE outbound_tasks SET state='failed',failure_reason='backup_restored',revision=revision+1 WHERE state IN ('waiting','ringing','dialing','connected')"
+                        )
+                        db.execute(
+                            "UPDATE outbox SET status='done' WHERE status IN ('pending','running')"
+                        )
+                        db.execute(
+                            "UPDATE line_leases SET state='unknown',call_id=NULL,channel_id=NULL"
+                        )
+                        db.execute(
+                            "INSERT INTO audit_events(id,actor_id,action,resource_id,created_at) VALUES (?,NULL,'backup_restored',NULL,?)",
+                            (uuid.uuid4().hex, time.time()),
+                        )
+            db_data = candidate.read_bytes()
         if check_only:
             return
         # Caller must stop both services and acquire the singleton lock.
         replacements = {
             config_file.parent / name: (archive.read(name), 0o640) for name in pbx_names
         }
+        replacements[settings.pjsip_file] = (
+            b"; Disabled after backup restore; recover administrator and sign in again.\n",
+            0o640,
+        )
         replacements[settings.key_file] = (key, 0o600)
         replacements[config_file] = (config, 0o600)
         if "firebase.json" in names:

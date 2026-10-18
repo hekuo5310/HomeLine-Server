@@ -34,7 +34,9 @@ def test_encrypted_backup_restore_and_wrong_password(app, tmp_path):
     assert settings.database.read_bytes() == before
     restore(settings, config, archive, "test-backup-passphrase")
     with sqlite3.connect(settings.database) as db:
-        assert db.execute("SELECT status FROM users WHERE username='bob'").fetchone()[0] == "active"
+        assert (
+            db.execute("SELECT status FROM users WHERE username='bob'").fetchone()[0] == "disabled"
+        )
         assert db.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
     assert list(tmp_path.glob("*.before-restore-*"))
 
@@ -261,3 +263,46 @@ def test_cli_preflight_is_non_mutating(app, tmp_path):
         check=True,
     )
     assert "no files changed" in result.stdout and not list(tmp_path.glob("*.before-restore-*"))
+
+
+def test_restore_quarantines_auth_and_never_replays_outbound(app, tmp_path):
+    import time
+
+    from homeline import models as m
+    from homeline.cli import recover_admin
+    from homeline.security import verify_password
+
+    a, c = app
+    settings = a.state.service.settings
+    session = login(c)
+    with a.state.service.database.transaction() as db:
+        task = m.OutboundTask(
+            user_id=session["user_id"], device_id=session["device_id"], destination="123456"
+        )
+        db.add(task)
+        db.flush()
+        task_id = task.id
+        db.get(m.Device, session["device_id"]).sip_expires_at = time.time() + 600
+    settings.pjsip_file.write_text("old generated SIP credentials")
+    config = tmp_path / "server.env"
+    config.write_text("configuration")
+    archive = tmp_path / "backup.hls"
+    backup(settings, config, archive, "test-backup-passphrase")
+    a.state.service.database.engine.dispose()
+    restore(settings, config, archive, "test-backup-passphrase")
+    assert "old generated SIP credentials" not in settings.pjsip_file.read_text()
+    with a.state.service.database.transaction(False) as db:
+        assert db.get(m.OutboundTask, task_id).state == "failed"
+        assert db.get(m.OutboundTask, task_id).failure_reason == "backup_restored"
+        assert db.get(m.Device, session["device_id"]).status == "revoked"
+        assert all(s.revoked for s in db.scalars(select(m.AuthSession)))
+        assert all(u.status == "disabled" for u in db.scalars(select(m.User)))
+    recover_admin(settings, "alice", "new-test-admin-password")
+    with a.state.service.database.transaction(False) as db:
+        alice = db.scalar(select(m.User).where(m.User.username == "alice"))
+        bob = db.scalar(select(m.User).where(m.User.username == "bob"))
+        assert alice.status == "active" and bob.status == "disabled"
+        assert verify_password(alice.password_hash, "new-test-admin-password")
+        assert not verify_password(alice.password_hash, "test-only-password")
+    with pytest.raises(ValueError, match="administrator not found"):
+        recover_admin(settings, "bob", "new-test-admin-password")

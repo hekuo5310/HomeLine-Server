@@ -42,6 +42,8 @@ ICE servers 可在 server.env 用 JSON 字符串设置 HOMELINE_ICE_SERVERS，�
 sudo deploy/backup.sh /secure/backups/home-20261018.hls /root/backup-passphrase
 sudo deploy/upgrade.sh /secure/backups/pre-upgrade.hls /root/backup-passphrase
 sudo deploy/restore.sh /secure/backups/home-20261018.hls /root/backup-passphrase
+sudo -u homeline /opt/homeline/venv/bin/homeline recover-admin --username admin
+# 管理员审核账号并重设密码、重新启用后，设备需要重新登录。
 sudo deploy/uninstall.sh
 ```
 
@@ -75,3 +77,7 @@ live 只表示进程活着；ready503 时不能认为电话可用。检查ARI凭
 恢复遇到普通写入错误会尝试回滚数据库、密钥、配置与 WAL/SHM 文件的整组变更。若恢复进程被强制终止或断电，会保留数据库目录下 `restore-in-progress.json`；API 和 doctor 拒绝启动，防止使用混合的新旧文件。不要直接删除该记录后启动。
 
 异常中断时先停止两个服务，离线查看记录中的 `snapshots` 映射：每个原目标对应一个同目录的 `before-restore-*` 原始副本，null 表示该文件此前不存在。由管理员核对路径后恢复每个副本，清理本次新建且此前不存在的文件，恢复正确所有者/权限，并核查 SQLite 完整性及主密钥匹配；完成后将状态记录移到离线故障档案，再重新执行恢复命令。回滚本身因磁盘故障失败时同样保留记录与副本，需要先处理存储故障。普通 I/O 回滚和模拟进程中断已做自动化测试；真实掉电不作已实测声明。
+
+恢复属于回到历史时间点，无法从旧备份知道哪些等待任务后来已拨出、哪些会话后来已撤销。因此恢复成功后所有账号先暂停，所有设备/会话撤销，FCM token 清除，生成的 SIP endpoint 文件清空；未完成呼叫/外呼任务标记为 failed/backup_restored，旧待发送指令终止。不会自动重拨备份中的等待任务。完成的历史记录保留。
+
+通过本机受保护的 OS 账号运行 `homeline recover-admin --username <已有管理员名>`，隐藏输入新的管理员密码两次，只启用指定管理员。随后管理员审核其他账号、重置密码后再启用；其他管理员也不会自动恢复有效。设备需重新登录、重新注册 SIP/FCM。恢复时服务健康检查200只表示软件链路就绪，不表示旧会话或队列已恢复执行。使用这些流程前应安装本轮版本的API与CLI，避免只复制维护脚本却继续运行旧服务端。
