@@ -9,7 +9,7 @@ Number = Annotated[str, Field(pattern=r"^\+?[0-9]{3,20}$")]
 
 
 class Input(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
 
 
 class Login(Input):

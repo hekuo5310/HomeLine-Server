@@ -8,7 +8,9 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_prefix="HOMELINE_", env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_prefix="HOMELINE_", env_file=".env", extra="ignore", hide_input_in_errors=True
+    )
     database: Path = Path("/var/lib/homeline/homeline.sqlite3")
     key_file: Path = Path("/etc/homeline/master.key")
     pjsip_file: Path = Path("/etc/asterisk/homeline/devices.conf")

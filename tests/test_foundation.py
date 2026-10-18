@@ -70,3 +70,19 @@ def test_management_and_sip_urls_fail_closed(tmp_path):
         Settings(**{**base, "ari_url": "http://public.example/ari"})
     with pytest.raises(ValueError):
         Settings(**{**base, "sip_wss_url": "ws://phone.example/ws"})
+
+
+def test_validation_messages_do_not_echo_cli_or_configuration_secrets():
+    from pydantic import ValidationError
+
+    from homeline.schemas import CreateUser
+
+    with pytest.raises(ValidationError) as settings_error:
+        Settings(
+            _env_file=None, ari_password="private-ari-do-not-echo", sip_wss_url="wss://localhost/ws"
+        )
+    assert "private-ari-do-not-echo" not in str(settings_error.value)
+    with pytest.raises(ValidationError) as user_error:
+        CreateUser(username="admin", extension="1001", password="secret")
+    assert "input_value" not in str(user_error.value)
+    assert "'secret'" not in str(user_error.value)
