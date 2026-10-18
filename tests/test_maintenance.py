@@ -189,3 +189,75 @@ def test_backup_is_published_only_after_complete_write(app, tmp_path, monkeypatc
         backup(a.state.service.settings, config, destination, "test-backup-passphrase")
     assert not destination.exists()
     assert list(tmp_path.glob(".homeline-backup-*")) == []
+
+
+def test_restore_preflight_validates_without_mutating_live_files(app, tmp_path):
+    a, c = app
+    settings = a.state.service.settings
+    config = tmp_path / "server.env"
+    config.write_text("configuration")
+    archive = tmp_path / "backup.hls"
+    backup(settings, config, archive, "test-backup-passphrase")
+    files = {p: p.read_bytes() for p in (settings.key_file, settings.database, config)}
+    restore(settings, config, archive, "test-backup-passphrase", check_only=True)
+    assert all(p.read_bytes() == data for p, data in files.items())
+    assert not list(tmp_path.glob("*.before-restore-*"))
+    with pytest.raises(InvalidToken):
+        restore(settings, config, archive, "incorrect-passphrase", check_only=True)
+
+
+def test_backup_rejects_wrong_master_key_before_publication(app, tmp_path):
+    from cryptography.fernet import Fernet
+
+    a, c = app
+    settings = a.state.service.settings
+    login(c)
+    config = tmp_path / "server.env"
+    config.write_text("configuration")
+    settings.key_file.write_bytes(Fernet.generate_key())
+    archive = tmp_path / "backup.hls"
+    with pytest.raises(InvalidToken):
+        backup(settings, config, archive, "test-backup-passphrase")
+    assert not archive.exists()
+
+
+def test_cli_preflight_is_non_mutating(app, tmp_path):
+    import json
+    import os
+    import subprocess
+    import sys
+
+    a, c = app
+    settings = a.state.service.settings
+    config = tmp_path / "server.env"
+    values = {
+        "HOMELINE_DATABASE": str(settings.database),
+        "HOMELINE_KEY_FILE": str(settings.key_file),
+        "HOMELINE_ARI_PASSWORD": "test-only",
+        "HOMELINE_SIP_WSS_URL": settings.sip_wss_url,
+        "HOMELINE_SIP_DOMAIN": settings.sip_domain,
+    }
+    config.write_text("\n".join(k + "=" + json.dumps(v) for k, v in values.items()))
+    password = tmp_path / "passphrase"
+    password.write_text("test-backup-passphrase")
+    password.chmod(0o600)
+    archive = tmp_path / "backup.hls"
+    env = {**os.environ, "PYTHONPATH": str(Path(__file__).parents[1] / "src")}
+    base = [sys.executable, "-m", "homeline.cli", "--config", str(config)]
+    result = subprocess.run(
+        base + ["backup", str(archive), "--passphrase-file", str(password), "--check"],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert "no files changed" in result.stdout and not archive.exists()
+    backup(settings, config, archive, "test-backup-passphrase")
+    result = subprocess.run(
+        base + ["restore", str(archive), "--passphrase-file", str(password), "--check"],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert "no files changed" in result.stdout and not list(tmp_path.glob("*.before-restore-*"))

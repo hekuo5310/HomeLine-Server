@@ -51,3 +51,13 @@ HOMELINE_TEST_ASTERISK_PREFIX=/tmp/hls-asterisk-prefix HOMELINE_TEST_LOOPBACK=1 
 8. 加密备份、升级迁移、恢复，核对用户、设备、队列、密钥、SQLite完整性与新旧凭据行为。错误口令不得改写现有数据。卸载两次均可执行，数据库与配置保留。还原网络/电源故障后的诊断日志，确认没有密码/令牌泄露。
 
 只有完成这些操作并保留真实日志/版本/结果，才能声称完成 Pi、Android、FXO、后台推送的最终验收。
+
+## 实际反向代理链路
+
+CI 额外安装独立 Nginx 测试进程，使用 `deploy/configure.py` 实际生成的代理配置，仅改为隔离测试端口和临时可信 CA：
+
+```bash
+HOMELINE_TEST_ASTERISK_PREFIX=/tmp/hls-asterisk HOMELINE_TEST_NGINX=/usr/sbin/nginx .venv/bin/pytest tests/native -q -s
+```
+
+第三个 proxy-media 用例通过真实 Nginx→Uvicorn 执行 HTTPS API，通过 Nginx→Asterisk TLS 执行 SIP/WSS，并验证事件 WebSocket、ARI 对外拒绝、错误上游证书名返回 502、并发抢接、设备撤销、SRTP 音频及 PBX 重启清理。前两个直连用例仍独立保留；未提供真实 Nginx 路径时第三个用例明确跳过。此 Linux 软件栈测试不能代替 Pi4/systemd/Android/FXO 的实机验收。

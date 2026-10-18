@@ -13,3 +13,11 @@
 未实测：Pi4 arm64完整安装/重复安装、目标主机systemd启停、两台Android系统来电/锁屏/电池策略、真实Firebase项目投递、真实FXO线路及公网/VPN/TURN媒体。程序化WebRTC媒体通过不能代替Android/FXO验收。配置渲染幂等测试不能代替整机安装验收。
 
 复验命令和真机步骤见 acceptance.md、deployment.md。所有后续结果必须关联实际运行记录。
+
+## 本轮维护与反向代理验证
+
+2026-10-18 续做：本机业务/API/维护测试新增至 **33 passed、3 native skipped**。新增覆盖连续备份恢复、带点号的自定义PBX配置、半成品备份不发布、整组文件回滚、进程中断标记、API拒绝带标记启动、备份密钥不匹配、备份/恢复CLI预检不改写目标。
+
+[CI run39131376981](https://github.com/hekuo5310/HomeLine-Server/actions/runs/39131376981) 已通过两种Python检查与 **3项真实PBX测试**：新增proxy-media使用部署模板生成的真实Nginx配置，经HTTPS执行API、事件WebSocket、TLS上游SIP/WSS与SRTP音频，并检查ARI不可透出和上游证书名错误返回502。该次CI业务测试对应新增预检前的源码；后续预检修订由PR最新提交的CI单独验证。这里没有把历史CI结果当作最新源码结果。
+
+物理Pi、Android、真实FXO/Firebase及真实断电仍未实测；Linux代理/媒体测试与模拟I/O故障不能替代这些项目。

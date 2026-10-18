@@ -3,9 +3,12 @@
 set -Eeuo pipefail
 [[ $EUID == 0 && $# == 2 ]] || { echo 'Usage: sudo deploy/upgrade.sh BACKUP_FILE PASSPHRASE_FILE' >&2; exit 1; }
 SOURCE=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+# Use this checkout's maintenance code, including during upgrades from older CLIs.
+export PYTHONPATH="$SOURCE/src"
+/opt/homeline/venv/bin/homeline backup "$1" --passphrase-file "$2" --check
+trap 'echo "Upgrade failed; service remains stopped. Restore the encrypted pre-upgrade backup before rollback." >&2' ERR
 systemctl stop homeline
 "$SOURCE/deploy/backup.sh" "$1" "$2"
-trap 'echo "Upgrade failed; service remains stopped. Restore the encrypted pre-upgrade backup before rollback." >&2' ERR
 /opt/homeline/venv/bin/pip install -r "$SOURCE/requirements.lock"
 /opt/homeline/venv/bin/pip install --no-deps "$SOURCE"
 runuser -u homeline -- /opt/homeline/venv/bin/homeline migrate

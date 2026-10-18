@@ -15,6 +15,7 @@ from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
 
 from .provisioning import atomic_write
+from .security import Vault
 
 MAGIC = b"HLSBACKUP1\0"
 MAXIMUM = 256 * 1024 * 1024
@@ -114,9 +115,27 @@ def publish_backup(destination, data):
         Path(temporary).unlink(missing_ok=True)
 
 
-def backup(settings, config_file, destination, password):
+def check_backup(settings, config_file, destination, password):
+    if len(password) < 12:
+        raise ValueError("Backup passphrase must have at least 12 characters")
     if destination.exists():
         raise FileExistsError("Refusing to overwrite existing backup")
+    if not destination.parent.is_dir():
+        raise FileNotFoundError("Backup destination directory does not exist")
+    if not config_file.is_file() or not settings.database.is_file():
+        raise FileNotFoundError("Configuration or database missing")
+    if restore_marker(settings).exists():
+        raise RuntimeError("Incomplete restore; resolve it before backup")
+    vault = Vault(settings.key_file)
+    with sqlite3.connect(f"file:{settings.database}?mode=ro", uri=True) as db:
+        for secret, token in db.execute("SELECT sip_secret,push_token FROM devices"):
+            vault.decrypt(secret)
+            if token:
+                vault.decrypt(token)
+
+
+def backup(settings, config_file, destination, password):
+    check_backup(settings, config_file, destination, password)
     with tempfile.TemporaryDirectory() as work:
         target = Path(work) / "state.sqlite3"
         with (
@@ -151,7 +170,11 @@ def backup(settings, config_file, destination, password):
         publish_backup(destination, encoded)
 
 
-def restore(settings, config_file, source, password):
+def restore(settings, config_file, source, password, *, check_only=False):
+    if restore_marker(settings).exists():
+        raise RuntimeError(
+            "Incomplete previous restore; inspect restore-in-progress.json before retrying"
+        )
     if source.stat().st_size > MAXIMUM * 2:
         raise ValueError("Archive too large")
     data = source.read_bytes()
@@ -196,6 +219,8 @@ def restore(settings, config_file, source, password):
                     raise ValueError("Unsupported schema")
                 for (secret,) in db.execute("SELECT sip_secret FROM devices"):
                     verifier.decrypt(secret.encode())
+        if check_only:
+            return
         # Caller must stop both services and acquire the singleton lock.
         replacements = {
             config_file.parent / name: (archive.read(name), 0o640) for name in pbx_names
