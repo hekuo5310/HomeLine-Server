@@ -10,6 +10,7 @@ license="MPL-2.0"
 dependencies=["fastapi==0.143.3","sqlalchemy==2.0.55","alembic==1.20.0","pydantic==2.14.1","pydantic-settings==2.16.0","uvicorn==0.54.0","httpx==0.28.1","websockets==16.1.1","firebase-admin==7.7.0","cryptography==50.0.2","argon2-cffi==25.1.0"]
 [project.optional-dependencies]
 test=["pytest==9.1.1","ruff==0.17.1"]
+native=["aiortc==1.14.0"]
 [project.scripts]
 homeline="homeline.cli:main"
 [tool.setuptools.packages.find]
@@ -20,3 +21,7 @@ testpaths=["tests"]
 line-length=100
 [tool.ruff.lint]
 select=["E4","E7","E9","F","I"]
+[tool.setuptools.data-files]
+"share/homeline"=["alembic.ini"]
+"share/homeline/migrations"=["migrations/env.py","migrations/script.py.mako"]
+"share/homeline/migrations/versions"=["migrations/versions/0001_initial.py"]

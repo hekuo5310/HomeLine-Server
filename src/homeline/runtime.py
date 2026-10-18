@@ -73,6 +73,8 @@ class Runtime:
                         async with self.actions:
                             if self.ready:
                                 await self.handle(event)
+                            elif event.get("type") == "StasisStart":
+                                await self.pbx.hangup(event["channel"]["id"], "congestion")
                 self.connected = False
                 self.ready = False
             except asyncio.CancelledError:

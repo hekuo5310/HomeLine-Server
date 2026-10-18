@@ -35,7 +35,17 @@ class Asterisk:
             raise PBXError("asterisk_request_failed") from exc
 
     async def info(self):
-        return await self.request("GET", "asterisk/info")
+        info = await self.request("GET", "asterisk/info")
+        for module in (
+            "res_srtp.so",
+            "chan_pjsip.so",
+            "res_pjsip_transport_websocket.so",
+            "res_ari_bridges.so",
+        ):
+            item = await self.request("GET", "asterisk/modules/" + module)
+            if item.get("status") != "Running":
+                raise PBXError("required_module_not_running")
+        return info
 
     async def channels(self):
         return await self.request("GET", "channels")

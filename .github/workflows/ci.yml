@@ -1,0 +1,54 @@
+name: Server verification
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  python:
+    runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        python: ['3.11', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: pip install -r requirements.lock
+      - run: pip install --no-deps .
+      - run: ruff check src tests deploy tools && ruff format --check src tests deploy tools
+      - run: pytest -q
+      - run: bash -n deploy/*.sh
+      - run: pip wheel --no-deps . -w dist && pip check
+  asterisk:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -r requirements.lock && pip install '.[native]'
+      - name: Build independent upstream Asterisk
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config libjansson-dev libedit-dev libsrtp2-dev libxml2-dev uuid-dev libsqlite3-dev libncurses-dev libssl-dev libcurl4-openssl-dev
+          curl --fail --location --proto '=https' https://downloads.asterisk.org/pub/telephony/asterisk/asterisk-22.11.0.tar.gz -o /tmp/asterisk.tar.gz
+          echo '3bd5ee040509a3d3cd9b1ba9520c18e6ec0a7e7981ca68c457dcd36ba3c54d94  /tmp/asterisk.tar.gz' | sha256sum --check -
+          tar -xzf /tmp/asterisk.tar.gz -C /tmp
+          cd /tmp/asterisk-22.11.0
+          ./configure --prefix=/tmp/hls-asterisk --with-pjproject-bundled
+          make menuselect.makeopts
+          menuselect/menuselect --disable BUILD_NATIVE menuselect.makeopts
+          make -j2
+          make install
+      - name: Actual WSS, SIP arbitration, SRTP media and restart
+        env:
+          HOMELINE_TEST_ASTERISK_PREFIX: /tmp/hls-asterisk
+        run: pytest tests/native -q -s --basetemp=/tmp/hls-native-results
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: native-diagnostics
+          path: /tmp/hls-native-results/**/native.log
