@@ -1,0 +1,22 @@
+# SPDX-License-Identifier: MPL-2.0
+[Unit]
+Description=HomeLine Server
+After=network-online.target homeline-asterisk.service
+Wants=network-online.target homeline-asterisk.service
+[Service]
+Type=simple
+User=homeline
+Group=asterisk
+WorkingDirectory=/opt/homeline
+EnvironmentFile=/etc/homeline/server.env
+ExecStart=/opt/homeline/venv/bin/uvicorn homeline.api:create_app --factory --host 127.0.0.1 --port 8000 --workers 1 --no-access-log --no-proxy-headers
+Restart=on-failure
+RestartSec=3
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/homeline /etc/homeline/asterisk/generated
+[Install]
+WantedBy=multi-user.target

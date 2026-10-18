@@ -1,0 +1,21 @@
+# SPDX-License-Identifier: MPL-2.0
+[Unit]
+Description=Independent Asterisk for HomeLine
+After=network-online.target
+Wants=network-online.target
+[Service]
+Type=simple
+User=asterisk
+Group=asterisk
+RuntimeDirectory=homeline-asterisk
+ExecStart=/opt/homeline-asterisk/sbin/asterisk -f -C /etc/homeline/asterisk/asterisk.conf
+Restart=on-failure
+RestartSec=3
+UMask=0027
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/homeline-asterisk /var/log/homeline-asterisk /var/spool/homeline-asterisk /run/homeline-asterisk
+[Install]
+WantedBy=multi-user.target
