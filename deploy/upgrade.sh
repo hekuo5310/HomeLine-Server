@@ -3,8 +3,8 @@
 set -Eeuo pipefail
 [[ $EUID == 0 && $# == 2 ]] || { echo 'Usage: sudo deploy/upgrade.sh BACKUP_FILE PASSPHRASE_FILE' >&2; exit 1; }
 SOURCE=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
-"$SOURCE/deploy/backup.sh" "$1" "$2"
 systemctl stop homeline
+"$SOURCE/deploy/backup.sh" "$1" "$2"
 trap 'echo "Upgrade failed; service remains stopped. Restore the encrypted pre-upgrade backup before rollback." >&2' ERR
 /opt/homeline/venv/bin/pip install -r "$SOURCE/requirements.lock"
 /opt/homeline/venv/bin/pip install --no-deps "$SOURCE"

@@ -62,3 +62,20 @@ def test_configuration_repeat_preserves_credentials_and_data(tmp_path):
     assert "password=" in (tmp_path / "etc/homeline/asterisk/ari.conf").read_text()
     with pytest.raises(ValueError):
         module.configure(tmp_path, "bad\ninclude=evil", "/cert", "/key")
+
+
+def test_deployment_preserves_secure_sip_upstream(tmp_path):
+    path = Path(__file__).parents[1] / "deploy/configure.py"
+    spec = importlib.util.spec_from_file_location("secure_configure", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    cert = tmp_path / "cert.pem"
+    key = tmp_path / "key.pem"
+    cert.write_text("test")
+    key.write_text("test")
+    module.configure(tmp_path, "phone.example", str(cert), str(key))
+    http = (tmp_path / "etc/homeline/asterisk/http.conf").read_text()
+    nginx = (tmp_path / "etc/nginx/sites-available/homeline").read_text()
+    assert "tlsenable=yes" in http and "tlsbindaddr=127.0.0.1:8089" in http
+    assert "proxy_pass https://127.0.0.1:8089/ws" in nginx and "proxy_ssl_verify on" in nginx
+    assert "proxy_ssl_name phone.example" in nginx

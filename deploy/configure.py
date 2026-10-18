@@ -74,7 +74,10 @@ rungroup = asterisk
 systemname = homeline
 """,
     )
-    create(pbx / "http.conf", "[general]\nenabled=yes\nbindaddr=127.0.0.1\nbindport=8088\n")
+    create(
+        pbx / "http.conf",
+        "[general]\nenabled=yes\nbindaddr=127.0.0.1\nbindport=8088\ntlsenable=yes\ntlsbindaddr=127.0.0.1:8089\ntlscertfile=/etc/homeline/asterisk/tls/server.crt\ntlsprivatekey=/etc/homeline/asterisk/tls/server.key\n",
+    )
     create(
         pbx / "ari.conf",
         f"[general]\nenabled=yes\npretty=no\n[homeline]\ntype=user\nread_only=no\npassword={settings.ari_password.get_secret_value()}\n",

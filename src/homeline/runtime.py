@@ -649,6 +649,19 @@ class Runtime:
                 or device.status != "active"
             ):
                 return
+            busy = db.scalar(
+                select(m.Leg.id)
+                .join(m.Call, m.Call.id == m.Leg.call_id)
+                .where(
+                    m.Leg.device_id == device_id,
+                    m.Leg.call_id != call_id,
+                    m.Leg.state.in_(["ringing", "up"]),
+                    m.Call.state.not_in(TERMINAL),
+                )
+                .limit(1)
+            )
+            if busy:
+                raise PBXError("device_busy")
             if device.sip_expires_at <= time.time():
                 raise PBXError("waiting_for_device_registration")
             channel = leg.channel_id or "hl-" + call_id + "-" + device_id

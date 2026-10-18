@@ -445,6 +445,35 @@ def create_app(settings=None, runtime=None):
                 for e in db.scalars(select(m.Audit).order_by(m.Audit.created_at.desc()).limit(200))
             ]
 
+    @app.get("/v1/inbound-queue", response_model=list[s.CallResponse])
+    def inbound_queue(request: Request):
+        with database.transaction(False) as db:
+            who = identity(db, request)
+            rows = db.execute(
+                select(m.Call, m.Leg)
+                .join(m.Leg, m.Leg.call_id == m.Call.id)
+                .where(
+                    m.Leg.device_id == who.device.id,
+                    m.Call.kind == "external",
+                    m.Call.state.in_(["waiting", "ringing", "claimed"]),
+                )
+                .order_by(m.Call.created_at)
+            )
+            return [service.call_payload(db, call, leg) for call, leg in rows]
+
+    @app.get("/v1/me")
+    def me(request: Request):
+        with database.transaction(False) as db:
+            who = identity(db, request)
+            return dict(
+                id=who.user.id,
+                username=who.user.username,
+                extension=who.user.extension,
+                account_status=who.user.status,
+                device_limit=who.user.device_limit,
+                role=who.user.role,
+            )
+
     @app.websocket("/v1/events")
     async def events(socket: WebSocket):
         try:
@@ -473,4 +502,53 @@ def create_app(settings=None, runtime=None):
         except WebSocketDisconnect:
             pass
 
+    from fastapi.openapi.utils import get_openapi
+
+    def openapi():
+        if app.openapi_schema:
+            return app.openapi_schema
+        schema = get_openapi(title=app.title, version=app.version, routes=app.routes)
+        schema.setdefault("components", {}).setdefault("securitySchemes", {})["Bearer"] = {
+            "type": "http",
+            "scheme": "bearer",
+            "description": "Opaque device session token; never pass in URL",
+        }
+        for path, operations in schema["paths"].items():
+            if not path.startswith("/v1/"):
+                continue
+            for method, operation in operations.items():
+                if not isinstance(operation, dict) or method not in {
+                    "get",
+                    "post",
+                    "patch",
+                    "put",
+                    "delete",
+                }:
+                    continue
+                if path != "/v1/sessions":
+                    operation["security"] = [{"Bearer": []}]
+                if (
+                    path
+                    in {
+                        "/v1/calls/{call_id}/{action}",
+                        "/v1/calls/{call_id}/device-events",
+                        "/v1/outbound-tasks",
+                        "/v1/outbound-tasks/{task_id}/cancel",
+                    }
+                    and method == "post"
+                    or path == "/v1/devices/{device_id}"
+                    and method == "delete"
+                ):
+                    operation.setdefault("parameters", []).append(
+                        {
+                            "name": "Idempotency-Key",
+                            "in": "header",
+                            "required": True,
+                            "schema": {"type": "string", "minLength": 1, "maxLength": 200},
+                        }
+                    )
+        app.openapi_schema = schema
+        return schema
+
+    app.openapi = openapi
     return app
