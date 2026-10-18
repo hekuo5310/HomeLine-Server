@@ -79,3 +79,16 @@ def test_deployment_preserves_secure_sip_upstream(tmp_path):
     assert "tlsenable=yes" in http and "tlsbindaddr=127.0.0.1:8089" in http
     assert "proxy_pass https://127.0.0.1:8089/ws" in nginx and "proxy_ssl_verify on" in nginx
     assert "proxy_ssl_name phone.example" in nginx
+
+
+def test_existing_database_without_master_key_fails_closed(tmp_path):
+    path = Path(__file__).parents[1] / "deploy/configure.py"
+    spec = importlib.util.spec_from_file_location("missing_key_configure", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    db = tmp_path / "var/lib/homeline/homeline.sqlite3"
+    db.parent.mkdir(parents=True)
+    db.write_bytes(b"existing")
+    with pytest.raises(RuntimeError, match="original master key"):
+        module.configure(tmp_path, "phone.example", "/cert", "/key")
+    assert db.read_bytes() == b"existing" and not (tmp_path / "etc/homeline/master.key").exists()

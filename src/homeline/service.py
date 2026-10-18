@@ -136,10 +136,15 @@ class Service:
             session.revoked = True
         for task in db.scalars(
             select(m.OutboundTask).where(
-                m.OutboundTask.device_id == device.id, m.OutboundTask.state == "waiting"
+                m.OutboundTask.device_id == device.id,
+                m.OutboundTask.state.in_(["waiting", "ringing", "dialing", "connected"]),
             )
         ):
             task.state, task.revision = "cancelled", task.revision + 1
+            if task.call_id:
+                call = db.get(m.Call, task.call_id)
+                change(call, "cancelled")
+                command(db, "end_call", call.id)
         for leg in db.scalars(select(m.Leg).where(m.Leg.device_id == device.id)):
             call = db.get(m.Call, leg.call_id)
             if call.state in TERMINAL:

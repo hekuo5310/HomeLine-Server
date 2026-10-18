@@ -32,6 +32,10 @@ def configure(root, host, cert, key, gateway=None, media_address=None):
     config = root / "etc/homeline"
     pbx = config / "asterisk"
     pbx.mkdir(parents=True, exist_ok=True)
+    if (root / "var/lib/homeline/homeline.sqlite3").exists() and not (
+        config / "master.key"
+    ).is_file():
+        raise RuntimeError("Existing database requires its original master key; restore a backup")
     create(config / "master.key", Fernet.generate_key(), 0o600)
     create(pbx / "tls/server.crt", Path(cert).read_bytes())
     create(pbx / "tls/server.key", Path(key).read_bytes())

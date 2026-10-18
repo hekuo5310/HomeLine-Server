@@ -296,3 +296,30 @@ def test_busy_device_is_not_given_second_invite(app):
         assert len(rt.pbx.dials) == 1
 
     asyncio.run(run())
+
+
+def test_revoke_requester_cancels_already_scheduled_outbound(app):
+    a, c = app
+    requester = login(c)
+    other = login(c, name="second")
+    rt = runtime(a)
+    c.post("/v1/outbound-tasks", headers=auth(requester), json={"destination": "123456"})
+
+    async def run():
+        await rt.schedule()
+        with rt.database.transaction(False) as db:
+            call_id = db.get(m.LineLease, "fxo").call_id
+        assert (
+            c.delete("/v1/devices/" + requester["device_id"], headers=auth(other)).status_code
+            == 200
+        )
+        await rt.dial_trunk(call_id)
+        assert rt.pbx.dials == []
+        with rt.database.transaction(False) as db:
+            assert db.get(m.Call, call_id).state == "cancelled"
+            assert (
+                db.scalar(select(m.OutboundTask).where(m.OutboundTask.call_id == call_id)).state
+                == "cancelled"
+            )
+
+    asyncio.run(run())
