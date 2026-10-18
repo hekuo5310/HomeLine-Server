@@ -276,8 +276,14 @@ async def wait_until(predicate, seconds=15):
     raise AssertionError("Native condition timed out")
 
 
-@pytest.mark.parametrize("media_required", [False, True], ids=["control", "media"])
-def test_native_multidevice_media_and_restart(tmp_path, media_required):
+@pytest.mark.parametrize(
+    ("media_required", "proxy"),
+    [(False, False), (True, False), (True, True)],
+    ids=["control", "media", "proxy-media"],
+)
+def test_native_multidevice_media_and_restart(tmp_path, media_required, proxy):
+    if proxy and not os.environ.get("HOMELINE_TEST_NGINX"):
+        pytest.skip("Real Nginx executable not supplied")
     if media_required and os.environ.get("HOMELINE_TEST_CONTROL_ONLY") == "1":
         pytest.skip("Runner forbids PBX interface enumeration; media needs a network-enabled host")
     if os.environ.get("HOMELINE_TEST_LOOPBACK") == "1":
@@ -286,14 +292,14 @@ def test_native_multidevice_media_and_restart(tmp_path, media_required):
         # Isolated runner disallows interface enumeration. Use real loopback UDP,
         # without replacing any SIP, PBX, ICE, DTLS or media implementation.
         with patch("aioice.ice.get_host_addresses", return_value=["127.0.0.1"]):
-            asyncio.run(scenario(tmp_path, media_required))
+            asyncio.run(scenario(tmp_path, media_required, proxy))
     else:
-        asyncio.run(scenario(tmp_path, media_required))
+        asyncio.run(scenario(tmp_path, media_required, proxy))
 
 
-async def scenario(root, media_required):
-    import httpx
+async def scenario(root, media_required, proxy):
     from cryptography.fernet import Fernet
+    from proxy_stack import api_client
 
     from homeline import models as m
     from homeline.api import create_app
@@ -321,11 +327,11 @@ async def scenario(root, media_required):
         key_file=root / "master.key",
         ari_url="http://127.0.0.1:18088/ari",
         ari_password=password,
-        sip_wss_url="wss://localhost:18089/ws",
+        sip_wss_url="wss://localhost:18443/ws" if proxy else "wss://localhost:18089/ws",
         sip_domain="localhost",
         pjsip_file=root / "devices.conf",
         lock_file=root / "worker.lock",
-        trusted_hosts=["testserver"],
+        trusted_hosts=["testserver", "localhost"],
         ring_seconds=60,
     )
     migrate(settings)
@@ -343,16 +349,14 @@ async def scenario(root, media_required):
     try:
         async with (
             app.router.lifespan_context(app),
-            httpx.AsyncClient(
-                transport=httpx.ASGITransport(app=app), base_url="http://testserver"
-            ) as client,
+            api_client(app, root, proxy) as (client, sip_port),
         ):
             await wait_until(lambda: rt.ready, 30)
             from websockets.asyncio.client import connect
 
             with pytest.raises(ssl.SSLCertVerificationError):
                 async with connect(
-                    "wss://localhost:18089/ws",
+                    settings.sip_wss_url,
                     ssl=ssl.create_default_context(),
                     subprotocols=["sip"],
                     proxy=None,
@@ -366,6 +370,15 @@ async def scenario(root, media_required):
                 diagnostic = await diagnose(settings)
                 assert diagnostic["trusted_sip_wss"] == "ok"
             context = ssl.create_default_context(cafile=str(root / "tls.pem"))
+            if proxy:
+                from websockets.exceptions import InvalidStatus
+
+                with pytest.raises(InvalidStatus) as rejected:
+                    async with connect(
+                        "wss://localhost:18444/ws", ssl=context, subprotocols=["sip"], proxy=None
+                    ):
+                        raise AssertionError("Nginx accepted mismatched upstream certificate")
+                assert rejected.value.response.status_code == 502
             sessions = []
             for username in ("alice", "bob", "bob"):
                 response = await client.post(
@@ -385,9 +398,20 @@ async def scenario(root, media_required):
                     headers={"Authorization": "Bearer " + session["access_token"]},
                 )
                 assert credentials.status_code == 200, credentials.text
-                phone = Phone(credentials.json(), context, 18089)
+                phone = Phone(credentials.json(), context, sip_port)
                 phones.append(phone)
                 await phone.start()
+            if proxy:
+                async with connect(
+                    "wss://localhost:18443/v1/events",
+                    ssl=context,
+                    additional_headers={"Authorization": "Bearer " + sessions[0]["access_token"]},
+                    proxy=None,
+                ) as events:
+                    assert (
+                        __import__("json").loads(await asyncio.wait_for(events.recv(), 5))["type"]
+                        == "snapshot_changed"
+                    )
             origin = asyncio.create_task(phones[0].originate("1002"))
 
             def report_origin(task):
@@ -459,7 +483,7 @@ async def scenario(root, media_required):
                 headers={"Authorization": "Bearer " + sessions[loser_index]["access_token"]},
             )
             assert old_session.status_code == 401
-            old_credentials = Phone(phones[loser_index].credentials, context, 18089)
+            old_credentials = Phone(phones[loser_index].credentials, context, sip_port)
             phones.append(old_credentials)
             with pytest.raises(AssertionError, match=r"SIP/2.0 (401|403|404)"):
                 await old_credentials.start()
@@ -474,6 +498,8 @@ async def scenario(root, media_required):
             print(
                 "PASS: WSS REGISTER/digest, per-leg SIP Call-ID, simultaneous claim, loser CANCEL, revoked SIP credentials rejected, PBX restart cleanup; media verified="
                 + str(media_required)
+                + "; nginx proxy="
+                + str(proxy)
             )
     finally:
         for phone in phones:

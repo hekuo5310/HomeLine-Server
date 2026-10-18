@@ -5,9 +5,12 @@ import ssl
 from websockets.asyncio.client import connect
 
 from .asterisk import Asterisk
+from .maintenance import restore_marker
 
 
 async def diagnose(settings):
+    if restore_marker(settings).exists():
+        raise RuntimeError("restore_incomplete")
     if not settings.database.is_file():
         raise RuntimeError("database_missing")
     with sqlite3.connect(f"file:{settings.database}?mode=ro", uri=True) as db:

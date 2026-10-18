@@ -92,3 +92,100 @@ def test_existing_database_without_master_key_fails_closed(tmp_path):
     with pytest.raises(RuntimeError, match="original master key"):
         module.configure(tmp_path, "phone.example", "/cert", "/key")
     assert db.read_bytes() == b"existing" and not (tmp_path / "etc/homeline/master.key").exists()
+
+
+def test_repeated_backup_restore_excludes_preserved_pbx_snapshots(app, tmp_path):
+    a, c = app
+    settings = a.state.service.settings
+    config = tmp_path / "server.env"
+    config.write_text("original config")
+    pbx = tmp_path / "asterisk"
+    pbx.mkdir()
+    (pbx / "extensions.conf").write_text("original dialplan")
+    (pbx / "custom.extra.conf").write_text("custom configuration")
+    archive = tmp_path / "first.hls"
+    backup(settings, config, archive, "test-backup-passphrase")
+    a.state.service.database.engine.dispose()
+    (pbx / "extensions.conf").write_text("changed dialplan")
+    restore(settings, config, archive, "test-backup-passphrase")
+    assert list(pbx.glob("*.before-restore-*"))
+    second = tmp_path / "second.hls"
+    backup(settings, config, second, "test-backup-passphrase")
+    restore(settings, config, second, "test-backup-passphrase")
+    assert (pbx / "extensions.conf").read_text() == "original dialplan"
+    assert (pbx / "custom.extra.conf").read_text() == "custom configuration"
+
+
+def test_restore_write_failure_rolls_back_all_files(app, tmp_path, monkeypatch):
+    import homeline.maintenance as maintenance
+
+    a, c = app
+    settings = a.state.service.settings
+    config = tmp_path / "server.env"
+    config.write_text("old config")
+    archive = tmp_path / "backup.hls"
+    backup(settings, config, archive, "test-backup-passphrase")
+    config.write_text("current config")
+    a.state.service.database.engine.dispose()
+    before = {p: p.read_bytes() for p in (settings.database, settings.key_file, config)}
+    original = maintenance.atomic_write
+    failed = False
+
+    def fail_once(path, data, mode=0o640):
+        nonlocal failed
+        if path == settings.database and not failed:
+            failed = True
+            raise OSError("injected write failure")
+        return original(path, data, mode)
+
+    monkeypatch.setattr(maintenance, "atomic_write", fail_once)
+    with pytest.raises(OSError, match="injected"):
+        restore(settings, config, archive, "test-backup-passphrase")
+    assert all(p.read_bytes() == data for p, data in before.items())
+    assert not maintenance.restore_marker(settings).exists()
+
+
+def test_interrupted_restore_blocks_startup_and_retry(app, tmp_path, monkeypatch):
+    import homeline.maintenance as maintenance
+    from homeline.api import create_app
+
+    a, c = app
+    settings = a.state.service.settings
+    config = tmp_path / "server.env"
+    config.write_text("old config")
+    archive = tmp_path / "backup.hls"
+    backup(settings, config, archive, "test-backup-passphrase")
+    a.state.service.database.engine.dispose()
+    original = maintenance.atomic_write
+
+    def interrupted(path, data, mode=0o640):
+        if path == settings.database:
+            raise KeyboardInterrupt("simulated process interruption")
+        return original(path, data, mode)
+
+    monkeypatch.setattr(maintenance, "atomic_write", interrupted)
+    with pytest.raises(KeyboardInterrupt):
+        restore(settings, config, archive, "test-backup-passphrase")
+    assert maintenance.restore_marker(settings).exists()
+    with pytest.raises(RuntimeError, match="Incomplete restore"):
+        create_app(settings, a.state.runtime)
+    with pytest.raises(RuntimeError, match="Incomplete previous restore"):
+        restore(settings, config, archive, "test-backup-passphrase")
+
+
+def test_backup_is_published_only_after_complete_write(app, tmp_path, monkeypatch):
+    import homeline.maintenance as maintenance
+
+    a, c = app
+    config = tmp_path / "server.env"
+    config.write_text("test configuration")
+    destination = tmp_path / "backup.hls"
+
+    def fail_link(source, target):
+        raise OSError("injected publish failure")
+
+    monkeypatch.setattr(maintenance.os, "link", fail_link)
+    with pytest.raises(OSError, match="publish failure"):
+        backup(a.state.service.settings, config, destination, "test-backup-passphrase")
+    assert not destination.exists()
+    assert list(tmp_path.glob(".homeline-backup-*")) == []

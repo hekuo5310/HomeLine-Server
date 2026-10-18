@@ -23,6 +23,12 @@ def create_app(settings=None, runtime=None):
         from .config import Settings
 
         settings = Settings()
+    from .maintenance import restore_marker
+
+    if restore_marker(settings).exists():
+        raise RuntimeError(
+            "Incomplete restore: recover saved snapshots offline before starting HomeLine"
+        )
     database, vault = Database(settings.database), Vault(settings.key_file)
     service = Service(database, settings, vault)
     if runtime is None:
