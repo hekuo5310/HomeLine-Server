@@ -323,3 +323,32 @@ def test_revoke_requester_cancels_already_scheduled_outbound(app):
             )
 
     asyncio.run(run())
+
+
+def test_two_users_compete_for_one_line_and_next_user_resumes(app):
+    from concurrent.futures import ThreadPoolExecutor
+
+    a, c = app
+    alice = login(c)
+    bob = login(c, "bob")
+    rt = runtime(a)
+    for session in (alice, bob):
+        assert (
+            c.post(
+                "/v1/outbound-tasks", headers=auth(session), json={"destination": "123456"}
+            ).status_code
+            == 201
+        )
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        list(pool.map(lambda _: asyncio.run(rt.schedule()), range(2)))
+    with rt.database.transaction(False) as db:
+        assert db.scalar(select(func.count()).select_from(m.Call)) == 1
+        first = db.get(m.LineLease, "fxo").call_id
+        assert db.get(m.Call, first).user_id == alice["user_id"]
+    with rt.database.transaction() as db:
+        change(db.get(m.Call, first), "failed")
+    asyncio.run(rt.end_call(first))
+    asyncio.run(rt.schedule())
+    with rt.database.transaction(False) as db:
+        second = db.get(m.LineLease, "fxo").call_id
+        assert second != first and db.get(m.Call, second).user_id == bob["user_id"]

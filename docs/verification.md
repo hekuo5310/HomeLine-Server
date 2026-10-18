@@ -2,7 +2,7 @@
 
 本机：Ubuntu24.04 amd64 / Python3.12.14，独立源码编译 Asterisk22.11.0。
 
-- Python业务/API/迁移/维护测试：最近完整运行23 passed，另2项真实PBX默认跳过。
+- Python业务/API/迁移/维护测试：最近完整运行24 passed，另2项真实PBX默认跳过。
 - Ruff、Shell语法、Python wheel构建、pip check通过。Wheel包含迁移与MPL许可证；已在独立venv中安装Wheel，从仓库以外目录执行打包迁移两次成功。
 - 实际 Asterisk 控制测试：1 passed、1 media skipped（本机禁止PBX网卡枚举；测试客户端只指定真实loopback）。没有关闭TLS校验。
 - GitHub真实PBX CI run [39108621823](https://github.com/hekuo5310/HomeLine-Server/actions/runs/39108621823)，job117619756845：**2 passed**。官方Asterisk22.11.0从源码构建成功；真实WSS/Digest REGISTER、INVITE Call-ID映射、多设备振铃/并发claim、失败设备CANCEL、DTLS-SRTP连接及音频RTP接收、PBX重启清理均通过。

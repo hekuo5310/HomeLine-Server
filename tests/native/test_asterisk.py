@@ -445,6 +445,24 @@ async def scenario(root, media_required):
                     )
 
                 await wait_until(media_received)
+            loser_index = (1 - winner) + 1
+            revoked = await client.delete(
+                "/v1/devices/" + sessions[loser_index]["device_id"],
+                headers={
+                    "Authorization": "Bearer " + sessions[winner + 1]["access_token"],
+                    "Idempotency-Key": "native-revoke",
+                },
+            )
+            assert revoked.status_code == 200, revoked.text
+            old_session = await client.get(
+                "/v1/session",
+                headers={"Authorization": "Bearer " + sessions[loser_index]["access_token"]},
+            )
+            assert old_session.status_code == 401
+            old_credentials = Phone(phones[loser_index].credentials, context, 18089)
+            phones.append(old_credentials)
+            with pytest.raises(AssertionError, match=r"SIP/2.0 (401|403|404)"):
+                await old_credentials.start()
             process.kill()
             await asyncio.to_thread(process.wait, 5)
             await wait_until(lambda: not rt.ready)
@@ -454,7 +472,7 @@ async def scenario(root, media_required):
                 assert db.get(m.Call, call_id).state in {"ended", "failed"}
             assert not await rt.pbx.channels()
             print(
-                "PASS: WSS REGISTER/digest, per-leg SIP Call-ID, simultaneous claim, loser CANCEL, PBX restart cleanup; media verified="
+                "PASS: WSS REGISTER/digest, per-leg SIP Call-ID, simultaneous claim, loser CANCEL, revoked SIP credentials rejected, PBX restart cleanup; media verified="
                 + str(media_required)
             )
     finally:
