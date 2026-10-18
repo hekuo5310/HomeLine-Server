@@ -2,6 +2,7 @@
 import asyncio
 import time
 from contextlib import asynccontextmanager
+from typing import Literal
 
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.exceptions import RequestValidationError
@@ -41,7 +42,15 @@ def create_app(settings=None, runtime=None):
             await runtime.stop()
             database.engine.dispose()
 
-    app = FastAPI(title="HomeLine Server", version="0.1.0", lifespan=lifespan)
+    app = FastAPI(
+        title="HomeLine Server",
+        version="0.1.0",
+        lifespan=lifespan,
+        responses={
+            code: {"model": s.ErrorResponse}
+            for code in (400, 401, 403, 404, 409, 413, 422, 429, 503)
+        },
+    )
     app.state.service, app.state.runtime = service, runtime
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.trusted_hosts)
 
@@ -98,11 +107,11 @@ def create_app(settings=None, runtime=None):
             raise Problem(403, "admin_required")
         return who
 
-    @app.get("/health/live")
+    @app.get("/health/live", response_model=s.HealthResponse)
     def live():
         return {"status": "alive"}
 
-    @app.get("/health/ready")
+    @app.get("/health/ready", response_model=s.HealthResponse)
     def ready():
         return JSONResponse(
             {"status": "ready" if runtime.ready else "pbx_unavailable"},
@@ -120,7 +129,7 @@ def create_app(settings=None, runtime=None):
         with database.transaction(False) as db:
             return service.session_payload(identity(db, request))
 
-    @app.delete("/v1/session")
+    @app.delete("/v1/session", response_model=s.EmptyResponse)
     async def logout(request: Request):
         with database.transaction() as db:
             who = identity(db, request)
@@ -146,7 +155,7 @@ def create_app(settings=None, runtime=None):
             audit(db, who.user.id, "device_renamed", d.id)
             return dict(id=d.id, name=d.name, status=d.status, last_seen_at=utc(d.last_seen_at))
 
-    @app.delete("/v1/devices/{device_id}")
+    @app.delete("/v1/devices/{device_id}", response_model=s.EmptyResponse)
     async def revoke(device_id: str, request: Request):
         with database.transaction() as db:
             who = identity(db, request)
@@ -161,7 +170,7 @@ def create_app(settings=None, runtime=None):
         await runtime.provision()
         return result
 
-    @app.put("/v1/devices/current/push-token")
+    @app.put("/v1/devices/current/push-token", response_model=s.EmptyResponse)
     def push_token(data: s.PushToken, request: Request):
         with database.transaction() as db:
             who = identity(db, request)
@@ -227,7 +236,7 @@ def create_app(settings=None, runtime=None):
                 await asyncio.sleep(0.1)
         raise Problem(404, "call_not_found")
 
-    @app.post("/v1/calls/{call_id}/device-events")
+    @app.post("/v1/calls/{call_id}/device-events", response_model=s.EmptyResponse)
     def receipt(call_id: str, data: s.Receipt, request: Request):
         with database.transaction() as db:
             who = identity(db, request)
@@ -267,7 +276,7 @@ def create_app(settings=None, runtime=None):
             )
 
     @app.post("/v1/calls/{call_id}/{action}", response_model=s.CallResponse)
-    def call_action(call_id: str, action: str, request: Request):
+    def call_action(call_id: str, action: Literal["claim", "reject", "hangup"], request: Request):
         with database.transaction() as db:
             who = identity(db, request)
             return service.idempotent(
@@ -308,7 +317,7 @@ def create_app(settings=None, runtime=None):
     def tasks(request: Request):
         return snapshot(request)["outbound_tasks"]
 
-    @app.post("/v1/outbound-tasks/{task_id}/cancel")
+    @app.post("/v1/outbound-tasks/{task_id}/cancel", response_model=s.EmptyResponse)
     def cancel(task_id: str, request: Request):
         with database.transaction() as db:
             who = identity(db, request)
@@ -329,7 +338,7 @@ def create_app(settings=None, runtime=None):
                 db, who, "cancel:" + task_id, request.headers.get("idempotency-key"), {}, action
             )
 
-    @app.get("/v1/admin/users")
+    @app.get("/v1/admin/users", response_model=list[s.UserResponse])
     def users(request: Request):
         with database.transaction(False) as db:
             identity(db, request, True)
@@ -345,7 +354,7 @@ def create_app(settings=None, runtime=None):
                 for u in db.scalars(select(m.User).order_by(m.User.created_at).limit(1000))
             ]
 
-    @app.post("/v1/admin/users", status_code=201)
+    @app.post("/v1/admin/users", status_code=201, response_model=s.CreatedResponse)
     def create_user(data: s.CreateUser, request: Request):
         with database.transaction() as db:
             who = identity(db, request, True)
@@ -361,7 +370,7 @@ def create_app(settings=None, runtime=None):
             audit(db, who.user.id, "user_created", u.id)
             return {"id": u.id}
 
-    @app.patch("/v1/admin/users/{user_id}")
+    @app.patch("/v1/admin/users/{user_id}", response_model=s.EmptyResponse)
     async def update_user(user_id: str, data: s.UpdateUser, request: Request):
         with database.transaction() as db:
             who = identity(db, request, True)
@@ -389,7 +398,7 @@ def create_app(settings=None, runtime=None):
         await runtime.provision()
         return {}
 
-    @app.get("/v1/admin/devices")
+    @app.get("/v1/admin/devices", response_model=list[s.AdminDeviceResponse])
     def admin_devices(request: Request):
         with database.transaction(False) as db:
             identity(db, request, True)
@@ -407,7 +416,7 @@ def create_app(settings=None, runtime=None):
                 )
             ]
 
-    @app.delete("/v1/admin/devices/{device_id}")
+    @app.delete("/v1/admin/devices/{device_id}", response_model=s.EmptyResponse)
     async def admin_revoke(device_id: str, request: Request):
         with database.transaction() as db:
             who = identity(db, request, True)
@@ -416,7 +425,7 @@ def create_app(settings=None, runtime=None):
         await runtime.provision()
         return {}
 
-    @app.patch("/v1/admin/outbound-tasks/{task_id}")
+    @app.patch("/v1/admin/outbound-tasks/{task_id}", response_model=s.EmptyResponse)
     def priority(task_id: str, data: s.Priority, request: Request):
         with database.transaction() as db:
             who = identity(db, request, True)
@@ -430,7 +439,7 @@ def create_app(settings=None, runtime=None):
             audit(db, who.user.id, "queue_priority_updated", task_id)
         return {}
 
-    @app.get("/v1/admin/audit")
+    @app.get("/v1/admin/audit", response_model=list[s.AuditResponse])
     def audits(request: Request):
         with database.transaction(False) as db:
             identity(db, request, True)
@@ -461,7 +470,7 @@ def create_app(settings=None, runtime=None):
             )
             return [service.call_payload(db, call, leg) for call, leg in rows]
 
-    @app.get("/v1/me")
+    @app.get("/v1/me", response_model=s.MeResponse)
     def me(request: Request):
         with database.transaction(False) as db:
             who = identity(db, request)

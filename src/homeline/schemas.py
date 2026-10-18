@@ -117,3 +117,52 @@ class CredentialsResponse(BaseModel):
     password: str
     expires_at: datetime
     ice_servers: list[dict[str, str]]
+
+
+class EmptyResponse(BaseModel):
+    pass
+
+
+class UserResponse(BaseModel):
+    id: str
+    username: str
+    extension: str
+    role: Literal["user", "admin"]
+    status: Literal["active", "disabled"]
+    device_limit: int | None
+
+
+class CreatedResponse(BaseModel):
+    id: str
+
+
+class AdminDeviceResponse(DeviceResponse):
+    user_id: str
+    platform: str
+
+
+class MeResponse(BaseModel):
+    id: str
+    username: str
+    extension: str
+    role: Literal["user", "admin"]
+    account_status: str
+    device_limit: int | None
+
+
+class AuditResponse(BaseModel):
+    id: str
+    actor_id: str | None
+    action: str
+    resource_id: str | None
+    created_at: datetime
+
+
+class HealthResponse(BaseModel):
+    status: str
+
+
+class ErrorResponse(BaseModel):
+    code: str
+    message: str | None = None
+    fields: list[list[str | int]] | None = None
