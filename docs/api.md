@@ -31,7 +31,7 @@
 | GET /v1/admin/audit | — | 最近 200 条脱敏审计 |
 | GET /health/live、/health/ready | — | alive；PBX 未准备好时 ready=503 |
 
-DTO 精确字段见客户端审计及 OpenAPI。时间使用 UTC RFC3339；nullable 必须保留。呼叫无 INVITE 时 sip_call_id=""，不能猜测 ID。设备列表/通话/历史/任务的 snapshot 上限各 200，用户/设备管理员列表上限 1000；当前无分页客户端，旧记录保留于数据库/备份。history 是当前设备参加过的终态通话。
+DTO 精确字段见客户端审计及 OpenAPI。时间使用 UTC RFC3339；nullable 必须保留。呼叫无 INVITE 时 sip_call_id=""，不能猜测 ID。设备列表与管理员账号/设备列表完整返回，不以显示截断形成隐含设备配额；登录配额只由管理员设置。通话/历史/任务的 snapshot 返回最近 200 项，旧记录保留于数据库/备份；现有客户端未实现历史分页。history 是当前设备参加过的终态通话。
 
 呼叫状态 waiting/ringing/claimed/connected/ended/cancelled/failed/timeout；终态不逆转。Task 状态 waiting/ringing/dialing/connected/completed/failed/cancelled。line_status 为 offline/unknown/idle/busy。SIP credentials 返回 WSS、sip:d{device_id}@domain、设备密码、期限和 ice_servers。urls 必须是字符串，符合 Flutter 的 List<Map<String,String>>。默认凭据授权期 600 秒，PJSIP 注册最长 60 秒；客户端定期重新获取。过期设备不能继续发新呼叫。
 

@@ -351,7 +351,7 @@ def create_app(settings=None, runtime=None):
                     status=u.status,
                     device_limit=u.device_limit,
                 )
-                for u in db.scalars(select(m.User).order_by(m.User.created_at).limit(1000))
+                for u in db.scalars(select(m.User).order_by(m.User.created_at))
             ]
 
     @app.post("/v1/admin/users", status_code=201, response_model=s.CreatedResponse)
@@ -411,9 +411,7 @@ def create_app(settings=None, runtime=None):
                     status=d.status,
                     last_seen_at=utc(d.last_seen_at),
                 )
-                for d in db.scalars(
-                    select(m.Device).order_by(m.Device.last_seen_at.desc()).limit(1000)
-                )
+                for d in db.scalars(select(m.Device).order_by(m.Device.last_seen_at.desc()))
             ]
 
     @app.delete("/v1/admin/devices/{device_id}", response_model=s.EmptyResponse)

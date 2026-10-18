@@ -80,6 +80,23 @@ class Service:
             raise Problem(401, "invalid_credentials")
         if user.status != "active":
             raise Problem(403, "account_disabled")
+        # Reauthentication must not consume quota belonging to expired sessions,
+        # even while the PBX supervisor is offline.
+        for previous in db.scalars(
+            select(m.Device).where(m.Device.user_id == user.id, m.Device.status == "active")
+        ):
+            valid = db.scalar(
+                select(m.AuthSession.id)
+                .where(
+                    m.AuthSession.device_id == previous.id,
+                    m.AuthSession.revoked.is_(False),
+                    m.AuthSession.expires_at > time.time(),
+                )
+                .limit(1)
+            )
+            if not valid:
+                self.revoke(db, previous)
+        db.flush()
         count = db.scalar(
             select(func.count())
             .select_from(m.Device)
@@ -300,7 +317,6 @@ class Service:
                 select(m.Device)
                 .where(m.Device.user_id == ident.user.id)
                 .order_by(m.Device.last_seen_at.desc())
-                .limit(200)
             )
         ]
         calls, history = [], []

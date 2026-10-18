@@ -262,3 +262,38 @@ def test_push_binding_and_websocket(app):
     with c.websocket_connect("/v1/events", headers=auth(one)) as ws:
         assert ws.receive_json()["type"] == "snapshot_changed"
     assert c.get("/v1/snapshot", headers=auth(one)).json()["history"] == []
+
+
+def test_device_inventory_is_not_an_implicit_product_limit(app):
+    a, c = app
+    session = login(c)
+    with a.state.service.database.transaction() as db:
+        for i in range(205):
+            db.add(
+                m.Device(
+                    user_id=session["user_id"],
+                    name=f"old device {i}",
+                    platform="android",
+                    sip_secret=a.state.service.vault.encrypt("test-only-secret"),
+                )
+            )
+    own = c.get("/v1/devices", headers=auth(session))
+    assert own.status_code == 200 and len(own.json()) == 206
+    assert len(c.get("/v1/admin/devices", headers=auth(session)).json()) == 206
+    assert c.get("/v1/session", headers=auth(session)).json()["device_limit"] is None
+
+
+def test_reauthentication_releases_expired_device_quota_without_pbx(app):
+    a, c = app
+    session = login(c)
+    with a.state.service.database.transaction() as db:
+        db.get(m.User, session["user_id"]).device_limit = 1
+        db.scalar(
+            select(m.AuthSession).where(m.AuthSession.device_id == session["device_id"])
+        ).expires_at = time.time() - 1
+    a.state.runtime.ready = False
+    renewed = login(c)
+    assert renewed["device_id"] != session["device_id"]
+    with a.state.service.database.transaction(False) as db:
+        assert db.get(m.Device, session["device_id"]).status == "revoked"
+    assert c.get("/v1/session", headers=auth(session)).status_code == 401
