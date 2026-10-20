@@ -115,7 +115,7 @@ live 只表示进程活着；ready503 时不能认为电话可用。检查ARI凭
 
 TURN 必须是实际公网可达的中继，可自建在公网服务器或选用经过验证的TURN供应商。不能把一个普通FRP UDP端口填写成TURN地址，也不能靠缩小到单个RTP端口来支持任意多设备通话。TURN服务方需要负责中继端口和容量，终端用户只配置TURN连接参数；本项目不提供内置公共TURN账号，也不声称任意免费FRP服务可独立完成媒体中继。
 
-复制 `deploy/turn.example.json` 到 `/root/homeline-turn.json`，填写自己的服务参数，设为0600。`server`/`username`/`password`用于PBX；`ice_servers`专门下发给已认证客户端，不应放TURN管理密钥或REST共享签名密钥。建议PBX和客户端用不同、限额且可撤销的TURN账号；当前配置为固定凭据，不提供每用户动态REST签发。根配置文件不可提交Git，已渲染的rtp.conf及server.env也含敏感信息。
+复制 `deploy/turn.example.json` 到 `/root/homeline-turn.json`，填写自己的服务参数，设为0600并归安装器的有效用户所有（sudo安装时为root）。必须是普通文件，不接受符号链接或管道；校验和读取使用同一个已打开文件。`server`/`username`/`password`用于PBX；`ice_servers`专门下发给已认证客户端，不应放TURN管理密钥或REST共享签名密钥。建议PBX和客户端用不同、限额且可撤销的TURN账号；当前配置为固定凭据，不提供每用户动态REST签发。根配置文件不可提交Git，已渲染的rtp.conf及server.env也含敏感信息。
 
 固定版本Asterisk22.11.0的源码 `res/res_rtp_asterisk.c` 在配置turnaddr后经TCP创建TURN allocation；必须选择支持普通TURN/TCP、并提供IPv4地址或A记录的服务，`server`格式为 `host:port`，不接受turns URL。手机URL可按服务能力使用 `turn:...?transport=tcp` 或 `turns:...:5349?transport=tcp`。仅支持TLS入口且不提供兼容TCP入口的供应商不能直接作为此版本PBX的TURN上游。媒体仍使用DTLS-SRTP加密；PBX的TURN/TCP控制连接本身不是TLS。
 
@@ -153,3 +153,5 @@ journalctl -u homeline-acme -u homeline-cert-activate
 加密业务备份不包含 `/etc/homeline-acme`、DNS API原始JSON及TURN原始JSON。PBX渲染配置和专用证书副本在备份内；完整灾难恢复需另外安全备份ACME账户/续期配置和外部证书路径。卸载会停止并移除上述timer/service，保留账户、证书及密钥文件，不让续期任务重新拉起已卸载服务。
 
 真实DNS申请/续期和Pi系统定时任务仍需使用用户自己的域名及环境验收。隔离编排测试不冒充真实CA签发；本地coturn媒体测试也不冒充已验证任意第三方FRP网络。
+
+客户端TURN URL允许turn的UDP/TCP，以及turns的默认TLS/TCP或显式transport=tcp；拒绝turns与transport=udp组合，当前集成不支持TURN over DTLS/UDP。bootstrap会在ACME运行前安装curl，复制脚本到没有curl/wget的干净系统也无需等到主安装器才安装HTTP客户端。

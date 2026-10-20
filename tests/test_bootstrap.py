@@ -166,3 +166,25 @@ main --non-interactive
     assert result.returncode == 1
     assert "Missing HOST" in result.stderr
     assert not Path(tls["EVENTS"]).exists()
+
+
+def test_bootstrap_prepares_http_client_when_neither_curl_nor_wget_exists(tmp_path):
+    result = run_shell(
+        """
+PATH="$TOOLS_DIR"
+! command -v curl
+! command -v wget
+apt-get() {
+    for package in "$@"; do
+        if [[ $package == curl ]]; then
+            printf '#!/bin/sh\\nexit 0\\n' > "$TOOLS_DIR/curl"
+            /bin/chmod +x "$TOOLS_DIR/curl"
+        fi
+    done
+}
+ensure_tools
+command -v curl >/dev/null
+""",
+        {"TOOLS_DIR": str(tmp_path)},
+    )
+    assert result.returncode == 0, result.stderr

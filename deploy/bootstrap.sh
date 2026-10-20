@@ -77,7 +77,7 @@ validate_values() {
 
 ensure_tools() {
     apt-get update
-    apt-get install -y --no-install-recommends git ca-certificates openssl python3
+    apt-get install -y --no-install-recommends git ca-certificates openssl python3 curl
 }
 
 validate_certificate() {

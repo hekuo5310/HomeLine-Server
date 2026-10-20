@@ -48,7 +48,9 @@ def test_turn_configuration_reaches_pbx_and_client(tmp_path, turn):
     assert before == (root / "etc/homeline/server.env").read_bytes()
 
 
-@pytest.mark.parametrize("invalid", ["public", "injection", "bad_url", "missing", "tls_server"])
+@pytest.mark.parametrize(
+    "invalid", ["public", "injection", "bad_url", "missing", "tls_server", "secure_udp"]
+)
 def test_turn_rejects_unsafe_or_incompatible_input(turn, invalid):
     path, data = turn
     if invalid == "public":
@@ -58,6 +60,8 @@ def test_turn_rejects_unsafe_or_incompatible_input(turn, invalid):
             data["password"] = "secret\n[section]"
         if invalid == "bad_url":
             data["ice_servers"][0]["urls"] = "https://turn.example"
+        if invalid == "secure_udp":
+            data["ice_servers"][0]["urls"] = "turns:turn.example:5349?transport=udp"
         if invalid == "missing":
             del data["ice_servers"]
         if invalid == "tls_server":
@@ -204,3 +208,62 @@ activate
         assert result.returncode != 0
         assert "clear-pending" not in events
         assert events.endswith("systemctl start homeline\n")
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "turn:turn.example:3478",
+        "turn:turn.example:3478?transport=udp",
+        "turn:turn.example:3478?transport=tcp",
+        "turns:turn.example:5349",
+        "turns:turn.example:5349?transport=tcp",
+    ],
+)
+def test_supported_client_turn_transports_remain_accepted(turn, url):
+    path, data = turn
+    data["ice_servers"][0]["urls"] = url
+    path.write_text(json.dumps(data))
+    assert load_turn_config(path)["ice_servers"][0]["urls"] == url
+
+
+def test_private_turn_file_owned_by_another_user_is_rejected(turn, monkeypatch):
+    from homeline import networking
+
+    path, _ = turn
+    owner = path.stat().st_uid
+    monkeypatch.setattr(networking.os, "geteuid", lambda: owner + 1)
+    with pytest.raises(ValueError, match="owned by the installer"):
+        load_turn_config(path)
+
+
+def test_turn_config_must_be_regular_and_not_a_symbolic_link(turn, tmp_path):
+    import os
+
+    path, _ = turn
+    link = tmp_path / "link.json"
+    link.symlink_to(path)
+    with pytest.raises(OSError):
+        load_turn_config(link)
+    fifo = tmp_path / "fifo.json"
+    os.mkfifo(fifo, 0o600)
+    with pytest.raises(ValueError, match="private"):
+        load_turn_config(fifo)
+
+
+def test_turn_ownership_check_and_read_use_same_open_file(turn, tmp_path, monkeypatch):
+    from homeline import networking
+
+    path, original = turn
+    replacement = tmp_path / "replacement.json"
+    replacement.write_text('{"untrusted":"replacement"}')
+    replacement.chmod(0o600)
+    real_fstat = networking.os.fstat
+
+    def replace_path_after_check(descriptor):
+        info = real_fstat(descriptor)
+        replacement.replace(path)
+        return info
+
+    monkeypatch.setattr(networking.os, "fstat", replace_path_after_check)
+    assert load_turn_config(path) == original
