@@ -148,6 +148,11 @@ def create_app(settings=None, runtime=None):
         with database.transaction() as db:
             return service.snapshot(db, identity(db, request), runtime.ready)
 
+    @app.get("/v1/status", response_model=s.StatusResponse)
+    def status(request: Request):
+        with database.transaction(False) as db:
+            return service.status(db, identity(db, request), runtime.ready)
+
     @app.get("/v1/devices", response_model=list[s.DeviceResponse])
     def devices(request: Request):
         return snapshot(request)["devices"]

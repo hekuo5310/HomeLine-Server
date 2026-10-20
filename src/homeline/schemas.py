@@ -99,11 +99,25 @@ class TaskResponse(BaseModel):
     failure_reason: str | None
 
 
-class SnapshotResponse(BaseModel):
+class ConnectionStatusResponse(BaseModel):
     account_status: str
     device_status: str
     line_status: str
     can_call: bool
+
+
+class StatusResponse(ConnectionStatusResponse):
+    server_status: Literal["ready", "degraded"]
+    pbx_ready: bool
+    fxo_enabled: bool
+    extension: str
+    active_calls: int = Field(ge=0)
+    waiting_inbound_calls: int = Field(ge=0)
+    waiting_outbound_tasks: int = Field(ge=0)
+    observed_at: datetime
+
+
+class SnapshotResponse(ConnectionStatusResponse):
     devices: list[DeviceResponse]
     calls: list[CallResponse]
     outbound_tasks: list[TaskResponse]

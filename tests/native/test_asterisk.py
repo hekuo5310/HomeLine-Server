@@ -401,6 +401,12 @@ async def scenario(root, media_required, proxy):
                 phone = Phone(credentials.json(), context, sip_port)
                 phones.append(phone)
                 await phone.start()
+            status_headers = {"Authorization": "Bearer " + sessions[0]["access_token"]}
+            assert (await client.get("/v1/status")).status_code == 401
+            status = await client.get("/v1/status", headers=status_headers)
+            assert status.status_code == 200
+            assert status.json()["server_status"] == "ready"
+            assert status.json()["active_calls"] == 0
             if proxy:
                 async with connect(
                     "wss://localhost:18443/v1/events",
@@ -490,8 +496,15 @@ async def scenario(root, media_required, proxy):
             process.kill()
             await asyncio.to_thread(process.wait, 5)
             await wait_until(lambda: not rt.ready)
+            status = await client.get("/v1/status", headers=status_headers)
+            assert status.status_code == 200
+            assert status.json()["server_status"] == "degraded"
+            assert status.json()["line_status"] == "offline"
             process = launch()
             await wait_until(lambda: rt.ready, 30)
+            status = await client.get("/v1/status", headers=status_headers)
+            assert status.json()["server_status"] == "ready"
+            assert status.json()["active_calls"] == 0
             with rt.database.transaction(False) as db:
                 assert db.get(m.Call, call_id).state in {"ended", "failed"}
             assert not await rt.pbx.channels()
