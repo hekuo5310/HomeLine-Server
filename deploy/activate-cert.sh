@@ -34,7 +34,7 @@ systemctl reload nginx
 systemctl restart homeline-asterisk
 systemctl start homeline
 for attempt in {1..30}; do
-    if curl --fail --silent http://127.0.0.1:8000/health/ready >/dev/null; then
+    if curl --fail --silent --connect-timeout 2 --max-time 3 http://127.0.0.1:8000/health/ready >/dev/null; then
         rm -- /etc/homeline-certs/pending
         return 0
     fi
