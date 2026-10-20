@@ -34,3 +34,8 @@ PJSIP由Asterisk自身bundled pjproject构建路径管理（当前22.11.0使用p
 - https://firebase.google.com/docs/cloud-messaging/send/admin-sdk
 - https://github.com/firebase/firebase-admin-python
 - https://pypi.org/ （精确发行版元数据与仓库许可证链接见JSON清单）
+
+
+可选证书工具acme.sh 3.1.6：官方仓库 https://github.com/acmesh-official/acme.sh ，固定提交807da6498377ee5e0cf43a78091f46f12dc59a89，LICENSE.md声明GPL-3.0。安装时独立下载、执行和保存上游许可证，不复制进HomeLine MPL源码或Python包；单独再分发时应满足其许可证。DNS API和CA另受供应商条款约束。
+
+可选测试服务coturn由CI发行版包管理器安装，官方项目 https://github.com/coturn/coturn ，上游声明BSD-3-Clause，具体发行版包版权以/usr/share/doc/coturn/copyright为准。仅运行独立测试进程，不将代码或二进制放入MPL仓库。生产TURN供应商、自建TURN及frp需要各自配置、容量和许可证审查。

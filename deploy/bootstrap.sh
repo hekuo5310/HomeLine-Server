@@ -10,6 +10,10 @@ Usage: sudo bash bootstrap.sh [options]
   --host DNS             Name covered by the trusted TLS certificate
   --cert /absolute/FILE  PEM certificate chain
   --key /absolute/FILE   Unencrypted PEM private key
+  --acme-dns dns_NAME    Issue via an acme.sh DNS API plugin instead of --cert/--key
+  --dns-env /FILE.json   Root-owned 0600 JSON of DNS API environment variables
+  --acme-email EMAIL    ACME account email (required with --acme-dns)
+  --turn-config /FILE   Private TURN JSON; for third-party FRP without RTP forwarding
   --gateway IPv4         Optional FXO gateway on a trusted LAN/VPN
   --media-address IPv4   Optional advertised media address
   --ref COMMIT           Fetch an exact 40-character Git commit (default: main)
@@ -54,9 +58,13 @@ validate_values() {
     [[ $HOST =~ ^[A-Za-z0-9.-]{1,200}$ ]] || die 'Invalid DNS hostname'
     local path value octet
     local -a octets
-    for path in "$CERT" "$KEY"; do
-        [[ $path =~ ^/[A-Za-z0-9_./-]+$ && -s $path ]] || die 'Certificate/key must be nonempty files with absolute paths containing only letters, digits, _, ., / and -'
-    done
+    if [[ -z ${ACME_DNS:-} ]]; then
+        for path in "$CERT" "$KEY"; do
+            [[ $path =~ ^/[A-Za-z0-9_./-]+$ && -s $path ]] || die 'Certificate/key must be nonempty files with absolute paths containing only letters, digits, _, ., / and -'
+        done
+    else
+        [[ $ACME_DNS =~ ^dns_[A-Za-z0-9_]+$ && -n $ACME_EMAIL && -f $DNS_ENV ]] || die 'ACME requires --acme-dns dns_NAME, --acme-email and --dns-env JSON'
+    fi
     for value in "$GATEWAY" "$MEDIA_ADDRESS"; do
         [[ -n $value ]] || continue
         [[ $value =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] || die 'Invalid gateway/media IPv4 address'
@@ -69,7 +77,7 @@ validate_values() {
 
 ensure_tools() {
     apt-get update
-    apt-get install -y --no-install-recommends git ca-certificates openssl
+    apt-get install -y --no-install-recommends git ca-certificates openssl python3
 }
 
 validate_certificate() {
@@ -112,15 +120,17 @@ acquire_install_lock() {
 
 main() {
     HOST='' CERT='' KEY='' GATEWAY='' MEDIA_ADDRESS='' REF=main NON_INTERACTIVE=false
+    ACME_DNS='' ACME_EMAIL='' DNS_ENV='' TURN_CONFIG=''
     while (( $# )); do
         case $1 in
             --help|-h) usage; return 0 ;;
             --non-interactive) NON_INTERACTIVE=true; shift ;;
-            --host|--cert|--key|--gateway|--media-address|--ref)
+            --host|--cert|--key|--gateway|--media-address|--ref|--acme-dns|--acme-email|--dns-env|--turn-config)
                 [[ $# -ge 2 && -n $2 && $2 != --* ]] || die "Missing value for $1"
                 case $1 in
                     --host) HOST=$2 ;; --cert) CERT=$2 ;; --key) KEY=$2 ;;
                     --gateway) GATEWAY=$2 ;; --media-address) MEDIA_ADDRESS=$2 ;; --ref) REF=$2 ;;
+                    --acme-dns) ACME_DNS=$2 ;; --acme-email) ACME_EMAIL=$2 ;; --dns-env) DNS_ENV=$2 ;; --turn-config) TURN_CONFIG=$2 ;;
                 esac
                 shift 2 ;;
             *) die "Unknown option: $1 (see --help)" ;;
@@ -132,17 +142,32 @@ main() {
     acquire_install_lock
     if existing_installation; then check_existing; return 0; fi
     [[ -n $HOST ]] || prompt_value 'HomeLine DNS hostname' HOST
-    [[ -n $CERT ]] || prompt_value 'Fullchain PEM absolute path' CERT
-    [[ -n $KEY ]] || prompt_value 'Private key absolute path' KEY
+    if [[ -z $ACME_DNS ]]; then
+        [[ -z $ACME_EMAIL && -z $DNS_ENV ]] || die '--acme-email/--dns-env require --acme-dns'
+        [[ -n $CERT ]] || prompt_value 'Fullchain PEM absolute path' CERT
+        [[ -n $KEY ]] || prompt_value 'Private key absolute path' KEY
+    else
+        [[ -z $CERT && -z $KEY ]] || die 'Choose ACME or existing certificate files, not both'
+    fi
     validate_values
     ensure_tools
-    validate_certificate
+    [[ -n $ACME_DNS ]] || validate_certificate
     WORK=$(mktemp -d /var/tmp/homeline-setup.XXXXXXXX)
     trap 'rm -rf -- "$WORK"' EXIT
     fetch_source "$WORK/source" "$REF"
+    if [[ -n $TURN_CONFIG ]]; then
+        PYTHONPATH="$WORK/source/src" python3 -c 'import sys; from homeline.networking import load_turn_config; load_turn_config(sys.argv[1])' "$TURN_CONFIG"
+    fi
+    if [[ -n $ACME_DNS ]]; then
+        python3 "$WORK/source/deploy/acme-setup.py" --host "$HOST" --email "$ACME_EMAIL" --dns "$ACME_DNS" --dns-env "$DNS_ENV"
+        CERT=/etc/homeline-certs/fullchain.pem
+        KEY=/etc/homeline-certs/key.pem
+        validate_certificate
+    fi
     local args=(--host "$HOST" --cert "$CERT" --key "$KEY")
     [[ -z $GATEWAY ]] || args+=(--gateway "$GATEWAY")
     [[ -z $MEDIA_ADDRESS ]] || args+=(--media-address "$MEDIA_ADDRESS")
+    [[ -z $TURN_CONFIG ]] || args+=(--turn-config "$TURN_CONFIG")
     run_installer "$WORK/source" "${args[@]}"
     echo 'Installation and readiness checks completed.'
     initialize_admin

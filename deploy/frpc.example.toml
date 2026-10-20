@@ -1,0 +1,14 @@
+# Provider-specific server address, port and authentication must be filled locally.
+serverAddr = "frp.example.com"
+serverPort = 7000
+auth.method = "token"
+auth.token = "replace-with-provider-token"
+
+[[proxies]]
+name = "homeline-https"
+type = "https"
+localIP = "127.0.0.1"
+localPort = 443
+customDomains = ["phone.example.com"]
+# No UDP proxies: public media uses separately configured authenticated TURN.
+# Do NOT enable https2http: TLS terminates on the Pi's Nginx.

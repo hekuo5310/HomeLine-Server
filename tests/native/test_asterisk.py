@@ -59,18 +59,40 @@ def digest_auth(challenge, user, password, method, uri):
 
 
 class Phone:
-    def __init__(self, credentials, ssl_context, port):
-        from aiortc import AudioStreamTrack, RTCConfiguration, RTCPeerConnection
+    def __init__(self, credentials, ssl_context, port, relay_only=False):
+        from aiortc import AudioStreamTrack, RTCConfiguration, RTCIceServer, RTCPeerConnection
 
         self.credentials = credentials
         self.user = credentials["authorization_user"]
         self.ssl_context, self.port = ssl_context, port
-        self.pc = RTCPeerConnection(RTCConfiguration(iceServers=[]))
+        self.relay_only = relay_only
+        self.pc = RTCPeerConnection(
+            RTCConfiguration(
+                iceServers=[RTCIceServer(**s) for s in credentials.get("ice_servers", [])]
+            )
+        )
         self.pc.addTrack(AudioStreamTrack())
         self.responses = {}
         self.invite = asyncio.Queue()
         self.cancelled = asyncio.Event()
         self.listener = None
+
+    def sdp(self, value):
+        if not self.relay_only:
+            return value
+        candidates = [line for line in value.splitlines() if line.startswith("a=candidate:")]
+        assert any(" typ relay" in line for line in candidates), (
+            "Actual TURN relay candidate missing"
+        )
+        # Neither side can fall back to a direct host/srflx route in this test.
+        return (
+            "\r\n".join(
+                line
+                for line in value.splitlines()
+                if not line.startswith("a=candidate:") or " typ relay" in line
+            )
+            + "\r\n"
+        )
 
     async def start(self):
         from websockets.asyncio.client import connect
@@ -147,10 +169,12 @@ class Phone:
     async def answer(self, incoming):
         from aiortc import RTCSessionDescription
 
-        await self.pc.setRemoteDescription(RTCSessionDescription(sdp=incoming[2], type="offer"))
+        await self.pc.setRemoteDescription(
+            RTCSessionDescription(sdp=self.sdp(incoming[2]), type="offer")
+        )
         answer = await self.pc.createAnswer()
         await self.pc.setLocalDescription(answer)
-        await self.respond(incoming, 200, "OK", self.pc.localDescription.sdp)
+        await self.respond(incoming, 200, "OK", self.sdp(self.pc.localDescription.sdp))
 
     async def originate(self, extension):
         from aiortc import RTCSessionDescription
@@ -162,7 +186,7 @@ class Phone:
         to = f"<{uri}>"
         extra = "Content-Type: application/sdp\r\n"
         result = await self.transact(
-            "INVITE", uri, call_id, 1, extra, self.pc.localDescription.sdp, to
+            "INVITE", uri, call_id, 1, extra, self.sdp(self.pc.localDescription.sdp), to
         )
         sequence = 1
         if result[0].startswith(("SIP/2.0 401", "SIP/2.0 407")):
@@ -177,10 +201,12 @@ class Phone:
             )
             sequence = 2
             result = await self.transact(
-                "INVITE", uri, call_id, sequence, extra, self.pc.localDescription.sdp, to
+                "INVITE", uri, call_id, sequence, extra, self.sdp(self.pc.localDescription.sdp), to
             )
         assert result[0].startswith("SIP/2.0 200"), result[0]
-        await self.pc.setRemoteDescription(RTCSessionDescription(sdp=result[2], type="answer"))
+        await self.pc.setRemoteDescription(
+            RTCSessionDescription(sdp=self.sdp(result[2]), type="answer")
+        )
         contact = re.search(r"<([^>]+)>", header(result[1], "contact")).group(1)
         await self.ws.send(
             self.request("ACK", contact, call_id, sequence, to=header(result[1], "to"))
@@ -297,7 +323,20 @@ def test_native_multidevice_media_and_restart(tmp_path, media_required, proxy):
         asyncio.run(scenario(tmp_path, media_required, proxy))
 
 
-async def scenario(root, media_required, proxy):
+def test_native_turn_only_media(tmp_path):
+    if not os.environ.get("HOMELINE_TEST_TURN") or not os.environ.get("HOMELINE_TEST_NGINX"):
+        pytest.skip("Real coturn and Nginx executables not supplied")
+
+    async def run():
+        from turn_stack import turn_server
+
+        async with turn_server(tmp_path) as turn:
+            await scenario(tmp_path, True, True, turn)
+
+    asyncio.run(run())
+
+
+async def scenario(root, media_required, proxy, turn=None):
     from cryptography.fernet import Fernet
     from proxy_stack import api_client
 
@@ -309,6 +348,10 @@ async def scenario(root, media_required, proxy):
 
     prefix = Path(os.environ["HOMELINE_TEST_ASTERISK_PREFIX"])
     password = native_config(root, prefix)
+    if turn:
+        from homeline.networking import rtp_configuration
+
+        (root / "rtp.conf").write_text(rtp_configuration(turn, 21000, 21100))
     output = (root / "native.log").open("w")
 
     def launch():
@@ -333,6 +376,7 @@ async def scenario(root, media_required, proxy):
         lock_file=root / "worker.lock",
         trusted_hosts=["testserver", "localhost"],
         ring_seconds=60,
+        ice_servers=turn["ice_servers"] if turn else [],
     )
     migrate(settings)
     app = create_app(settings)
@@ -398,7 +442,7 @@ async def scenario(root, media_required, proxy):
                     headers={"Authorization": "Bearer " + session["access_token"]},
                 )
                 assert credentials.status_code == 200, credentials.text
-                phone = Phone(credentials.json(), context, sip_port)
+                phone = Phone(credentials.json(), context, sip_port, relay_only=bool(turn))
                 phones.append(phone)
                 await phone.start()
             status_headers = {"Authorization": "Bearer " + sessions[0]["access_token"]}
@@ -513,6 +557,8 @@ async def scenario(root, media_required, proxy):
                 + str(media_required)
                 + "; nginx proxy="
                 + str(proxy)
+                + "; relay-only="
+                + str(bool(turn))
             )
     finally:
         for phone in phones:

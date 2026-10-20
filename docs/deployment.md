@@ -20,7 +20,7 @@ sudo bash /tmp/homeline-bootstrap.sh --non-interactive \
 
 FXO 地址可省略，后续按本文配置；`--media-address` 可指定媒体地址。默认获取运行时 main，会输出实际提交SHA；要复现审核过的版本，加 `--ref <完整40位Git提交SHA>`。入口脚本也可从对应提交的 raw URL 下载，避免 main 后续变化。安装包与 Asterisk 源码下载需要出站联网，脚本不会配置公网端口映射。
 
-证书不是脚本自动申请的：已有公网域名使用其可信证书，私有CA先将根证书安装到 Pi 与每台手机。不会静默生成不受信任的自签证书或关闭校验。无公网IPv4仍可在已配置DNS的局域网/VPN使用。
+可使用已有可信证书，或使用下述 acme.sh DNS API 自动签发模式；不生成不受信任的自签证书、不关闭证书校验。私有CA需先将根证书安装到 Pi 与手机。
 
 重复运行入口只检查已有服务，健康则成功退出，不重新安装软件、改写数据库/密钥或重设管理员。已有安装异常会返回非零并提示检查日志；部分安装用原始版本 deploy/install.sh 修复。升级使用本页先备份的 upgrade.sh 流程。入口锁只防止多个 bootstrap 同时执行，其他维护操作仍应安排在线路空闲时，避免并发运行。
 
@@ -105,3 +105,51 @@ live 只表示进程活着；ready503 时不能认为电话可用。检查ARI凭
 恢复属于回到历史时间点，无法从旧备份知道哪些等待任务后来已拨出、哪些会话后来已撤销。因此恢复成功后所有账号先暂停，所有设备/会话撤销，FCM token 清除，生成的 SIP endpoint 文件清空；未完成呼叫/外呼任务标记为 failed/backup_restored，旧待发送指令终止。不会自动重拨备份中的等待任务。完成的历史记录保留。
 
 通过本机受保护的 OS 账号运行 `homeline recover-admin --username <已有管理员名>`，隐藏输入新的管理员密码两次，只启用指定管理员。随后管理员审核其他账号、重置密码后再启用；其他管理员也不会自动恢复有效。设备需重新登录、重新注册 SIP/FCM。恢复时服务健康检查200只表示软件链路就绪，不表示旧会话或队列已恢复执行。使用这些流程前应安装本轮版本的API与CLI，避免只复制维护脚本却继续运行旧服务端。
+
+
+## 第三方 FRP：HTTPS 加 TURN，无需转发 RTP 端口段
+
+普通用户不需要把10000–10100作为公网FRP端口段开放。这只是Asterisk本地分配媒体socket的范围。第三方FRP只承载 HTTPS（API、事件WS、SIP/WSS），语音使用单独的、经过认证的公网 TURN 服务中继。Pi 和手机主动向 TURN 建立连接，通常不需要任何 FRP UDP 映射。
+
+`deploy/frpc.example.toml` 提供 HTTPS 类型示例，按运营商/第三方FRP服务填写控制地址、鉴权及获配域名；HTTPS入口需可访问，默认客户端凭据使用公网443。保持透传到Pi的443，不使用https2http插件；证书安装在Pi上，host填对应公网域名。
+
+TURN 必须是实际公网可达的中继，可自建在公网服务器或选用经过验证的TURN供应商。不能把一个普通FRP UDP端口填写成TURN地址，也不能靠缩小到单个RTP端口来支持任意多设备通话。TURN服务方需要负责中继端口和容量，终端用户只配置TURN连接参数；本项目不提供内置公共TURN账号，也不声称任意免费FRP服务可独立完成媒体中继。
+
+复制 `deploy/turn.example.json` 到 `/root/homeline-turn.json`，填写自己的服务参数，设为0600。`server`/`username`/`password`用于PBX；`ice_servers`专门下发给已认证客户端，不应放TURN管理密钥或REST共享签名密钥。建议PBX和客户端用不同、限额且可撤销的TURN账号；当前配置为固定凭据，不提供每用户动态REST签发。根配置文件不可提交Git，已渲染的rtp.conf及server.env也含敏感信息。
+
+固定版本Asterisk22.11.0的源码 `res/res_rtp_asterisk.c` 在配置turnaddr后经TCP创建TURN allocation；必须选择支持普通TURN/TCP、并提供IPv4地址或A记录的服务，`server`格式为 `host:port`，不接受turns URL。手机URL可按服务能力使用 `turn:...?transport=tcp` 或 `turns:...:5349?transport=tcp`。仅支持TLS入口且不提供兼容TCP入口的供应商不能直接作为此版本PBX的TURN上游。媒体仍使用DTLS-SRTP加密；PBX的TURN/TCP控制连接本身不是TLS。
+
+新装添加 `--turn-config /root/homeline-turn.json`，自动同时生成PBX的TURN配置和API下发的客户端ICE配置。无需 `--media-address`；保留直连ICE候选便于LAN使用，外网由ICE协商选取可达中继。已有安装的配置不会被安装器重写，需在线路空闲时审核修改rtp.conf与HOMELINE_ICE_SERVERS并重启。公网/不同运营商/第三方FRP仍需实测；不要仅因页面可登录或SIP已注册就宣称音频正常。
+
+## 通用 acme.sh 自动签发与续期
+
+不需要向维护者提供域名或Token。可复制 `deploy/setup.example.sh` 为同目录 `setup.local.sh`，自行填写域名、邮箱、DNS插件名、DNS凭据JSON路径、TURN JSON路径和可选FXO地址，再执行：
+
+```bash
+sudo bash deploy/setup.local.sh
+```
+
+也可向下载的一键入口直接传参：
+
+```bash
+sudo bash /tmp/homeline-bootstrap.sh --host phone.example.com \
+  --acme-email you@example.com --acme-dns dns_cf --dns-env /root/homeline-dns.json \
+  --turn-config /root/homeline-turn.json
+```
+
+`--cert/--key` 与ACME模式互斥。`deploy/dns-credentials.example.json`以Cloudflare的CF_Token/CF_Zone_ID为例；其他DNS商按acme.sh官方dnsapi文档填写其变量名并选择相应dns_PLUGIN。文件必须root拥有、0600，内容是JSON数据，不会当shell脚本执行；Token仅传给acme.sh进程环境，不进入命令行。限制Token到需要的DNS区域和DNS编辑权限。
+
+签发使用Let's Encrypt DNS-01，不依赖FRP开放80；DNS服务需要提供兼容API。acme.sh 3.1.6从固定上游提交独立安装到 `/opt/homeline-acme`，不混入MPL源码。账户与续期配置在 `/etc/homeline-acme`，托管证书在 `/etc/homeline-certs`。密钥/账户目录0700、证书私钥0600；Nginx root主进程读取源文件，Asterisk使用受限组副本。
+
+systemd的homeline-acme.timer每天运行续期检查；成功安装证书后留下pending标记。homeline-cert-activate.timer每5分钟重试：校验证书、检测PBX零活动通道，暂停API后再次确认空闲，更新PBX副本、reload Nginx、重启PBX/API并检查ready；忙线或状态未知时延迟，不主动挂断正在进行的通话。维护切换窗口内的新呼叫可能失败，应监控证书到期时间及pending积压，不承诺完全无感更新。失败保留pending供重试。
+
+已有安装若使用其他证书路径，独立ACME设置会拒绝直接改动；先审核把Nginx证书路径迁移到托管路径。bootstrap对已安装系统依然只做诊断，不暗中切换证书/网络策略。升级及新功能配置需按维护流程操作。
+
+```bash
+systemctl list-timers 'homeline-*'
+journalctl -u homeline-acme -u homeline-cert-activate
+```
+
+加密业务备份不包含 `/etc/homeline-acme`、DNS API原始JSON及TURN原始JSON。PBX渲染配置和专用证书副本在备份内；完整灾难恢复需另外安全备份ACME账户/续期配置和外部证书路径。卸载会停止并移除上述timer/service，保留账户、证书及密钥文件，不让续期任务重新拉起已卸载服务。
+
+真实DNS申请/续期和Pi系统定时任务仍需使用用户自己的域名及环境验收。隔离编排测试不冒充真实CA签发；本地coturn媒体测试也不冒充已验证任意第三方FRP网络。

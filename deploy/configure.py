@@ -11,6 +11,7 @@ from pathlib import Path
 
 from cryptography.fernet import Fernet
 
+from homeline.networking import load_turn_config, rtp_configuration
 from homeline.provisioning import atomic_write
 
 
@@ -19,7 +20,8 @@ def create(path, text, mode=0o640):
         atomic_write(path, text.encode() if isinstance(text, str) else text, mode)
 
 
-def configure(root, host, cert, key, gateway=None, media_address=None):
+def configure(root, host, cert, key, gateway=None, media_address=None, turn_config=None):
+    turn = load_turn_config(turn_config) if turn_config else None
     if not re.fullmatch(r"[A-Za-z0-9.-]{1,200}", host):
         raise ValueError("Invalid DNS host")
     for value in (cert, key):
@@ -53,6 +55,7 @@ def configure(root, host, cert, key, gateway=None, media_address=None):
             "HOMELINE_TRUSTED_HOSTS": json.dumps([host, "localhost", "127.0.0.1"]),
             "HOMELINE_FXO_ENABLED": str(bool(gateway)).lower(),
             "HOMELINE_LOCK_FILE": "/var/lib/homeline/worker.lock",
+            "HOMELINE_ICE_SERVERS": json.dumps(turn["ice_servers"] if turn else []),
         }
         create(env, "\n".join(k + "=" + json.dumps(v) for k, v in settings.items()) + "\n", 0o600)
     # Reuse generated secret on repeated installation, never rotate behind a running instance.
@@ -97,9 +100,7 @@ noload=res_ari_mailboxes.so
 noload=res_pjsip_outbound_registration.so
 """,
     )
-    create(
-        pbx / "rtp.conf", "[general]\nrtpstart=10000\nrtpend=10100\nicesupport=yes\nstrictrtp=yes\n"
-    )
+    create(pbx / "rtp.conf", rtp_configuration(turn))
     create(
         pbx / "logger.conf",
         "[general]\n[logfiles]\nconsole=warning,error,notice\nmessages=warning,error,notice\n",
@@ -200,5 +201,6 @@ if __name__ == "__main__":
     p.add_argument("--key", required=True)
     p.add_argument("--gateway")
     p.add_argument("--media-address")
+    p.add_argument("--turn-config", type=Path)
     a = p.parse_args()
-    configure(a.root, a.host, a.cert, a.key, a.gateway, a.media_address)
+    configure(a.root, a.host, a.cert, a.key, a.gateway, a.media_address, a.turn_config)

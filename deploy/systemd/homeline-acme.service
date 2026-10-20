@@ -1,0 +1,10 @@
+# SPDX-License-Identifier: MPL-2.0
+[Unit]
+Description=Renew HomeLine TLS certificate using independent acme.sh
+Wants=network-online.target
+After=network-online.target
+[Service]
+Type=oneshot
+UMask=0077
+PrivateTmp=yes
+ExecStart=/opt/homeline-acme/acme.sh --cron --home /opt/homeline-acme --config-home /etc/homeline-acme

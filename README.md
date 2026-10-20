@@ -18,7 +18,7 @@
 curl --fail --location --proto '=https' https://raw.githubusercontent.com/hekuo5310/HomeLine-Server/main/deploy/bootstrap.sh -o /tmp/homeline-bootstrap.sh && sudo bash /tmp/homeline-bootstrap.sh
 ```
 
-向导询问域名、TLS fullchain 和私钥的绝对路径，校验证书后自动下载源码并安装 Python、独立 Asterisk、Nginx 与 systemd 服务，执行迁移和健康检查；最后可在终端创建管理员并隐藏输入密码。证书须提前准备并受 Pi 与手机信任。已有安装只执行诊断，不绕过备份直接升级。可加 `--non-interactive --host ... --cert ... --key ...`，或用 `--ref <40位提交SHA>` 固定源码版本。完整说明见 [部署文档](docs/deployment.md)。
+已有证书模式由向导询问域名、TLS fullchain 和私钥路径；ACME模式传入DNS插件与凭据JSON，自动签发。随后安装 Python、独立 Asterisk、Nginx 与 systemd 服务，执行迁移和健康检查；最后可在终端创建管理员并隐藏输入密码。支持已有可信证书，或配置 acme.sh DNS API 自动申请与续期。已有安装只执行诊断，不绕过备份直接升级。可加 `--non-interactive --host ... --cert ... --key ...`，或用 `--ref <40位提交SHA>` 固定源码版本。完整说明见 [部署文档](docs/deployment.md)。
 
 以下为已克隆仓库时的安装方式：
 
@@ -52,3 +52,6 @@ python3 -m venv .venv
 - [网络与安全](docs/security.md)
 - [测试与真机验收](docs/acceptance.md)
 - [第三方依赖与许可证](THIRD_PARTY.md)、[精确版本与元数据](licenses/python-dependencies.json)
+
+
+第三方FRP用户可使用 **HTTPS隧道 + 经认证的公网TURN**，无需开放10000–10100的FRP UDP端口段。复制 `deploy/setup.example.sh` 为 `setup.local.sh` 自行填写DNS/ACME/TURN参数；详见 [部署文档](docs/deployment.md)。TURN需自建或由供应商提供，本项目不附带公共中继账号。
