@@ -309,6 +309,40 @@ class Service:
             failure_reason=task.failure_reason,
         )
 
+    def connection_status(self, db, ident, ready):
+        lease = db.get(m.LineLease, "fxo")
+        return dict(
+            account_status=ident.user.status,
+            device_status=ident.device.status,
+            line_status=lease.state if ready and self.settings.fxo_enabled and lease else "offline",
+            can_call=ready,
+        )
+
+    def status(self, db, ident, ready):
+        # Same participant scope as snapshot, but aggregate every row without its display limit.
+        calls = (
+            select(func.count(m.Call.id))
+            .join(m.Leg, m.Leg.call_id == m.Call.id)
+            .where(m.Leg.device_id == ident.device.id)
+        )
+        return dict(
+            **self.connection_status(db, ident, ready),
+            server_status="ready" if ready else "degraded",
+            pbx_ready=ready,
+            fxo_enabled=self.settings.fxo_enabled,
+            extension=ident.user.extension,
+            active_calls=db.scalar(calls.where(m.Call.state.not_in(TERMINAL))),
+            waiting_inbound_calls=db.scalar(
+                calls.where(m.Call.kind == "external", m.Call.state == "waiting")
+            ),
+            waiting_outbound_tasks=db.scalar(
+                select(func.count(m.OutboundTask.id)).where(
+                    m.OutboundTask.user_id == ident.user.id, m.OutboundTask.state == "waiting"
+                )
+            ),
+            observed_at=utc(time.time()),
+        )
+
     def snapshot(self, db, ident, ready):
         ident.device.last_seen_at = time.time()
         devices = [
@@ -338,12 +372,8 @@ class Service:
                 .limit(200)
             )
         ]
-        lease = db.get(m.LineLease, "fxo")
         return dict(
-            account_status=ident.user.status,
-            device_status=ident.device.status,
-            line_status=lease.state if ready and self.settings.fxo_enabled and lease else "offline",
-            can_call=ready,
+            **self.connection_status(db, ident, ready),
             devices=devices,
             calls=calls,
             history=history,

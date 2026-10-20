@@ -8,6 +8,7 @@
 | GET /v1/session | — | Session，同一已认证令牌回显，不是新令牌 |
 | DELETE /v1/session | — | {}，撤销当前设备及会话 |
 | GET /v1/snapshot | — | Snapshot |
+| GET /v1/status | — | 轻量汇总状态 Status，需设备会话认证 |
 | GET /v1/devices | — | Device[]（附加管理便利接口） |
 | PATCH /v1/devices/{id} | name | Device |
 | DELETE /v1/devices/{id} | Idempotency-Key | {} |
@@ -42,3 +43,37 @@ WebSocket /v1/events 使用相同 Bearer 请求头，服务端发送 {"type":"sn
 FCM 为 Android high priority data-only：type=incoming_call、call_id、expires_at，TTL≤120 秒且受呼叫 deadline 限制。不含 SIP 密码、会话令牌或电话号码。receipt stage 支持 received/restored/registered/ringing/connected/failed/media_lost，不能据收据伪造 PBX 状态。
 
 错误格式 {code,message}，输入错误仅返回字段路径，不回显敏感输入。常见状态：401 authentication_required/session_expired/invalid_credentials；403 access_revoked/account_disabled/admin_required/not_call_participant；404 device_not_found/call_not_found/task_not_found；409 answered_elsewhere/sip_not_ringing/call_expired/device_limit_reached/idempotency_conflict/task_already_running/constraint_conflict；400 idempotency_key_required；413 request_too_large；422 invalid_input；429 rate_limited；503 pbx_unavailable/sip_provision_failed/fxo_not_configured。请求体上限 16 KiB。HTTP 总速率 1000/min、登录 20/5min、WS 30/min，按实际连接 IP 计；当前 Nginx 下共享回环地址，适合家庭规模，公网接入需额外认证代理与边界限速。
+
+## 汇总状态接口
+
+`GET /v1/status` 使用现有设备会话的 `Authorization: Bearer <access_token>`，无需请求体。例：
+
+```bash
+curl --fail --show-error https://phone.example/v1/status \
+  -H "Authorization: Bearer $HOMELINE_ACCESS_TOKEN"
+```
+
+响应示例（数值以实际服务状态为准）：
+
+```json
+{
+  "account_status": "active",
+  "device_status": "active",
+  "line_status": "idle",
+  "can_call": true,
+  "server_status": "ready",
+  "pbx_ready": true,
+  "fxo_enabled": true,
+  "extension": "1001",
+  "active_calls": 0,
+  "waiting_inbound_calls": 0,
+  "waiting_outbound_tasks": 0,
+  "observed_at": "2026-10-20T05:30:00Z"
+}
+```
+
+`server_status` 为 ready/degraded，取决于 PBX 是否已完成恢复、可接受呼叫控制；`pbx_ready` 和 `can_call` 与现有 snapshot 一致。这不证明当前手机已 SIP 注册、推送可送达、外线可拨通或通话接通。`fxo_enabled` 只表示配置启用；`line_status` 是服务器已知线路租约状态（offline/unknown/idle/busy），PBX 未就绪、未配置 FXO 或无租约时为 offline，并非网关硬件探测结果。
+
+`active_calls` 为当前设备参与的非终态通话数，`waiting_inbound_calls` 为其中 external 且 waiting 的数量（不包含已 ringing 的呼叫），`waiting_outbound_tasks` 为当前用户全部设备的 waiting 外呼任务数。计数覆盖全部匹配记录，不受 snapshot 最近200条的显示限制；不公开其他用户的呼叫或队列详情。`observed_at` 是查询时间，不是线路物理状态测量时间。
+
+PBX 不可用仍返回 HTTP200 和 degraded/offline，以便页面展示；监控就绪探针继续使用 `/health/ready`（故障503）。失效会话401，撤销设备或禁用账号403；响应禁止缓存。此为新增服务端接口，现有客户端不需要修改也可继续使用 snapshot。

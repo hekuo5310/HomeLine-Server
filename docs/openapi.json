@@ -676,6 +676,119 @@
         ]
       }
     },
+    "/v1/status": {
+      "get": {
+        "summary": "Status",
+        "operationId": "status_v1_status_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatusResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Request Entity Too Large",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "Bearer": []
+          }
+        ]
+      }
+    },
     "/v1/devices": {
       "get": {
         "summary": "Devices",
@@ -3998,6 +4111,82 @@
           "history"
         ],
         "title": "SnapshotResponse"
+      },
+      "StatusResponse": {
+        "properties": {
+          "account_status": {
+            "type": "string",
+            "title": "Account Status"
+          },
+          "device_status": {
+            "type": "string",
+            "title": "Device Status"
+          },
+          "line_status": {
+            "type": "string",
+            "title": "Line Status"
+          },
+          "can_call": {
+            "type": "boolean",
+            "title": "Can Call"
+          },
+          "server_status": {
+            "type": "string",
+            "enum": [
+              "ready",
+              "degraded"
+            ],
+            "title": "Server Status"
+          },
+          "pbx_ready": {
+            "type": "boolean",
+            "title": "Pbx Ready"
+          },
+          "fxo_enabled": {
+            "type": "boolean",
+            "title": "Fxo Enabled"
+          },
+          "extension": {
+            "type": "string",
+            "title": "Extension"
+          },
+          "active_calls": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Active Calls"
+          },
+          "waiting_inbound_calls": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Waiting Inbound Calls"
+          },
+          "waiting_outbound_tasks": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Waiting Outbound Tasks"
+          },
+          "observed_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Observed At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "account_status",
+          "device_status",
+          "line_status",
+          "can_call",
+          "server_status",
+          "pbx_ready",
+          "fxo_enabled",
+          "extension",
+          "active_calls",
+          "waiting_inbound_calls",
+          "waiting_outbound_tasks",
+          "observed_at"
+        ],
+        "title": "StatusResponse"
       },
       "TaskResponse": {
         "properties": {
