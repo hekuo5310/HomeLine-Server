@@ -2,6 +2,30 @@
 
 目标：Raspberry Pi 4，官方 Raspberry Pi OS Lite **64-bit** Bookworm (Debian12) 或 Trixie (Debian13)。2026-10-18 核查官方 OS 文档/下载页，当前主线为 Trixie。安装器检查 OS、aarch64 和 Raspberry Pi 型号，不会把本机 amd64 测试当作 Pi 验证。Python 3.11–3.14；首要部署分别为 Bookworm3.11/Trixie3.13。
 
+## 一条命令启动安装
+
+```bash
+curl --fail --location --proto '=https' https://raw.githubusercontent.com/hekuo5310/HomeLine-Server/main/deploy/bootstrap.sh -o /tmp/homeline-bootstrap.sh && sudo bash /tmp/homeline-bootstrap.sh
+```
+
+先下载为文件再执行；下载失败不会执行残缺脚本。首次运行交互询问域名、证书链和无密码私钥文件路径。自动检测 root、OS、aarch64、Pi 型号、systemd，获取安装锁，校验证书信任链、主机名、有效期、私钥配对，然后下载官方仓库并调用已有 install.sh。源码临时目录退出时清理；Asterisk 构建失败的目录和服务配置仍保留供诊断。最终在终端询问是否立即初始化 admin / 1001，密码隐藏输入，不会生成默认密码。
+
+无人值守方式（管理员后续通过本机 CLI 初始化）：
+
+```bash
+sudo bash /tmp/homeline-bootstrap.sh --non-interactive \
+  --host phone.example --cert /etc/ssl/homeline/fullchain.pem --key /etc/ssl/homeline/key.pem \
+  --gateway 192.168.1.20
+```
+
+FXO 地址可省略，后续按本文配置；`--media-address` 可指定媒体地址。默认获取运行时 main，会输出实际提交SHA；要复现审核过的版本，加 `--ref <完整40位Git提交SHA>`。入口脚本也可从对应提交的 raw URL 下载，避免 main 后续变化。安装包与 Asterisk 源码下载需要出站联网，脚本不会配置公网端口映射。
+
+证书不是脚本自动申请的：已有公网域名使用其可信证书，私有CA先将根证书安装到 Pi 与每台手机。不会静默生成不受信任的自签证书或关闭校验。无公网IPv4仍可在已配置DNS的局域网/VPN使用。
+
+重复运行入口只检查已有服务，健康则成功退出，不重新安装软件、改写数据库/密钥或重设管理员。已有安装异常会返回非零并提示检查日志；部分安装用原始版本 deploy/install.sh 修复。升级使用本页先备份的 upgrade.sh 流程。入口锁只防止多个 bootstrap 同时执行，其他维护操作仍应安排在线路空闲时，避免并发运行。
+
+自动化仅验证入口编排和 OpenSSL 证书检查；没有将隔离的 shell 测试当作 Pi 整机安装结果。
+
 先配置静态 LAN/VPN 地址和 DNS。准备覆盖 phone.example 的 TLS fullchain/key，手机必须信任 CA。私有 CA 导入 Pi 的 /usr/local/share/ca-certificates 后运行 update-ca-certificates；手机也必须自行信任。安装脚本不会关闭 TLS 校验或悄悄安装不被手机信任的证书。
 
 ```bash

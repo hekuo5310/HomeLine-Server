@@ -12,6 +12,16 @@
 
 目标为 Raspberry Pi 4 + Raspberry Pi OS Lite 64-bit Bookworm/Trixie。安装会独立编译固定版本 Asterisk 22.11.0，不改写其他 Asterisk 实例。
 
+无需先克隆仓库，可下载一键入口到本地后运行：
+
+```bash
+curl --fail --location --proto '=https' https://raw.githubusercontent.com/hekuo5310/HomeLine-Server/main/deploy/bootstrap.sh -o /tmp/homeline-bootstrap.sh && sudo bash /tmp/homeline-bootstrap.sh
+```
+
+向导询问域名、TLS fullchain 和私钥的绝对路径，校验证书后自动下载源码并安装 Python、独立 Asterisk、Nginx 与 systemd 服务，执行迁移和健康检查；最后可在终端创建管理员并隐藏输入密码。证书须提前准备并受 Pi 与手机信任。已有安装只执行诊断，不绕过备份直接升级。可加 `--non-interactive --host ... --cert ... --key ...`，或用 `--ref <40位提交SHA>` 固定源码版本。完整说明见 [部署文档](docs/deployment.md)。
+
+以下为已克隆仓库时的安装方式：
+
 先准备与 DNS 名称匹配、手机和服务器均信任的 TLS 证书；局域网私有 CA 必须先安装信任链。普通 HTTP 或关闭证书校验不受支持。
 
 ```bash
