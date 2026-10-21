@@ -1,0 +1,8 @@
+# SPDX-License-Identifier: MPL-2.0
+[Unit]
+Description=Activate renewed HomeLine certificate when PBX is idle
+ConditionPathExists=/etc/homeline-certs/pending
+[Service]
+Type=oneshot
+UMask=0077
+ExecStart=/usr/local/libexec/homeline-activate-cert

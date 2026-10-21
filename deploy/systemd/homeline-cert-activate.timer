@@ -1,0 +1,8 @@
+# SPDX-License-Identifier: MPL-2.0
+[Unit]
+Description=Retry pending HomeLine certificate activation
+[Timer]
+OnBootSec=2min
+OnCalendar=*:0/5
+[Install]
+WantedBy=timers.target

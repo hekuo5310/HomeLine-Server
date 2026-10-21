@@ -1,0 +1,12 @@
+{
+  "server": "turn.example.com:3478",
+  "username": "replace-with-server-turn-user",
+  "password": "replace-with-server-turn-password",
+  "ice_servers": [
+    {
+      "urls": "turn:turn.example.com:3478?transport=tcp",
+      "username": "replace-with-client-turn-user",
+      "credential": "replace-with-client-turn-password"
+    }
+  ]
+}

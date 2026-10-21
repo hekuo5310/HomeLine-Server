@@ -12,3 +12,7 @@ __pycache__/
 build/
 dist/
 .coverage
+# Local installer parameters; never commit DNS/TURN credentials.
+deploy/setup.local.sh
+deploy/*credentials.local.json
+deploy/turn.local.json

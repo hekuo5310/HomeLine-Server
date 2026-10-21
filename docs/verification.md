@@ -25,3 +25,14 @@
 恢复权限隔离回归已覆盖：旧会话/设备失效、所有账号暂停、待执行外呼终止、生成的SIP凭据清空；本地重设管理员密码后只恢复指定管理员，不自动启用普通用户。客户端待提交外呼按 user_id:device_id 绑定，新设备登录不会自动重放旧设备意图（只读核查客户端代码）。
 
 另已验证配置与管理员输入的Pydantic错误文字隐藏原始输入，防止CLI错误输出回显密码或ARI凭据；OpenAPI生成一致性保持不变。
+
+
+## ACME 与 TURN 续做（2026-10-20）
+
+- 业务/API/维护/部署配置测试本机67 passed、4 native skipped；Python3.11/3.13 CI均通过。
+- 源码56c251f586907cf3e5678521997995ca06cc651b的 [CI run39423955701](https://github.com/hekuo5310/HomeLine-Server/actions/runs/39423955701) 通过4项真实Asterisk22.11.0用例。新增coturn经TCP allocation、Nginx HTTPS/WSS、双方SDP仅保留relay候选，DTLS-SRTP音频接收通过；测试输出media verified=True、nginx proxy=True、relay-only=True。
+- 实际从固定上游提交807da6498377ee5e0cf43a78091f46f12dc59a89安装acme.sh到临时目录，验证v3.1.6和dns_cf插件存在，随后清理。没有发起真实CA签发请求。
+- 四个systemd续期/启用单元在隔离根目录、提供占位执行文件后使用systemd-analyze verify通过；这仅为静态单元验证，不是Pi运行测试。
+- 隔离测试覆盖JSON密钥权限/保留环境变量拒绝、Token不进命令行、PBX/客户端TURN配置生成、忙线延迟证书启用、启用失败保留pending及服务恢复。发行命令采用故障驱动器，不将其记为真实DNS签发。
+
+后续提交为证书就绪探针增加明确连接/总超时，并补充验收步骤；以PR对应提交CI状态为准。用户实际DNS申请/续期、Pi systemd生命周期、第三方FRP公网、Android与FXO仍未实测。

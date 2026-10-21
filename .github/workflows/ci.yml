@@ -20,7 +20,7 @@ jobs:
       - run: pip install --no-deps .
       - run: ruff check src tests deploy tools && ruff format --check src tests deploy tools
       - run: pytest -q
-      - run: bash -n deploy/*.sh
+      - run: for script in deploy/*.sh; do bash -n "$script"; done
       - run: pip wheel --no-deps . -w dist && pip check
   asterisk:
     runs-on: ubuntu-24.04
@@ -34,7 +34,7 @@ jobs:
       - name: Build independent upstream Asterisk
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential pkg-config libjansson-dev libedit-dev libsrtp2-dev libxml2-dev uuid-dev libsqlite3-dev libncurses-dev libssl-dev libcurl4-openssl-dev nginx
+          sudo apt-get install -y build-essential pkg-config libjansson-dev libedit-dev libsrtp2-dev libxml2-dev uuid-dev libsqlite3-dev libncurses-dev libssl-dev libcurl4-openssl-dev nginx coturn
           curl --fail --location --proto '=https' https://downloads.asterisk.org/pub/telephony/asterisk/asterisk-22.11.0.tar.gz -o /tmp/asterisk.tar.gz
           echo '3bd5ee040509a3d3cd9b1ba9520c18e6ec0a7e7981ca68c457dcd36ba3c54d94  /tmp/asterisk.tar.gz' | sha256sum --check -
           tar -xzf /tmp/asterisk.tar.gz -C /tmp
@@ -48,6 +48,7 @@ jobs:
         env:
           HOMELINE_TEST_ASTERISK_PREFIX: /tmp/hls-asterisk
           HOMELINE_TEST_NGINX: /usr/sbin/nginx
+          HOMELINE_TEST_TURN: /usr/bin/turnserver
         run: pytest tests/native -q -s --basetemp=/tmp/hls-native-results
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
@@ -56,3 +57,4 @@ jobs:
           path: |
             /tmp/hls-native-results/**/native.log
             /tmp/hls-native-results/**/nginx*.log
+            /tmp/hls-native-results/**/coturn.log

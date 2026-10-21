@@ -61,3 +61,17 @@ HOMELINE_TEST_ASTERISK_PREFIX=/tmp/hls-asterisk HOMELINE_TEST_NGINX=/usr/sbin/ng
 ```
 
 第三个 proxy-media 用例通过真实 Nginx→Uvicorn 执行 HTTPS API，通过 Nginx→Asterisk TLS 执行 SIP/WSS，并验证事件 WebSocket、ARI 对外拒绝、错误上游证书名返回 502、并发抢接、设备撤销、SRTP 音频及 PBX 重启清理。前两个直连用例仍独立保留；未提供真实 Nginx 路径时第三个用例明确跳过。此 Linux 软件栈测试不能代替 Pi4/systemd/Android/FXO 的实机验收。
+
+## TURN 中继与自动证书新增验收
+
+在可运行独立coturn的Linux主机上安装coturn，使用第四个真实媒体用例：
+
+```bash
+HOMELINE_TEST_ASTERISK_PREFIX=/tmp/hls-asterisk HOMELINE_TEST_NGINX=/usr/sbin/nginx HOMELINE_TEST_TURN=/usr/bin/turnserver .venv/bin/pytest tests/native -q -s
+```
+
+新增用例启用PBX TURN/TCP及客户端TURN/TCP，双方SDP仅保留实际relay候选，再要求DTLS连接和解密音频RTP接收。测试专用coturn只绑定loopback，为此显式允许loopback peers；该设置不得复制到公网生产配置。该测试证明软件栈存在可用TURN媒体路径，不等于验证某个用户的第三方FRP/NAT/Android环境。
+
+真实部署还须在手机移动网络与家庭网络间通话，并确认未开放任何FRP RTP端口映射时仍有双向音频；核对TURN allocation、权限/限额、断网恢复和凭据过期行为。仅配置STUN或仅看到relay候选不算音频通过。
+
+ACME使用自己的DNS区域先验证DNS API权限和传播，再真实签发，检查私钥/账户目录权限。确认homeline-acme.timer已启用；通话中触发证书启用任务应保留pending且不停止服务，空闲后才更新副本并恢复ready。检查新旧TLS指纹和错误证书拒绝。隔离测试中的模拟发行命令和静态systemd验证不替代这一步，禁止将未实际签发/续期的证书记为通过。
